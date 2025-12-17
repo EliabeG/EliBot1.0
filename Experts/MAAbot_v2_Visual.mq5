@@ -110,7 +110,8 @@ int OnInit() {
    Print(" MinAgreeSignals=", MinAgreeSignals, " | Mode=", EnumToString(PrecisionMode));
    Print("=============================================================");
    Print(" TRAILING STOP: ", EnumToString(AdvTrail_Mode));
-   Print(" PROFIT LOCK: ", EnumToString(ProfitLock_Mode));
+   Print(" ATIVAÇÃO: ", EnumToString(Trail_Activation));
+   Print(" REGIME: ", EnumToString(Trail_Regime));
    Print("=============================================================");
 
    return INIT_SUCCEEDED;
