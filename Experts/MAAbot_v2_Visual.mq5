@@ -1,13 +1,13 @@
 //+------------------------------------------------------------------+
 //|                                         MAAbot_v2_Visual.mq5     |
 //|   XAUUSD M15 - Ensemble + Trend-Aware + TP/SL Precisos + Hedge   |
-//|   v2.3.1 - PAINEL VISUAL CORRIGIDO - 9 ESTRATÉGIAS               |
+//|   v2.4.0 - TRAILING STOP AVANÇADO + 9 ESTRATÉGIAS                |
 //|                                     Autor: Eliabe N Oliveira     |
 //|                                      Data: 10/12/2025            |
 //+------------------------------------------------------------------+
 #property strict
-#property description "XAUUSD M15 — v2.3.1 - Painel Visual Corrigido"
-#property version  "2.31"
+#property description "XAUUSD M15 — v2.4.0 - Trailing Stop Avançado"
+#property version  "2.40"
 
 //+------------------------------------------------------------------+
 //|                    INCLUDES - MÓDULOS DO EA                       |
@@ -92,13 +92,16 @@ int OnInit() {
       return INIT_FAILED;
    }
    
+   // Inicializar indicadores do Trailing Stop Avançado
+   InitTrailingIndicators();
+
    if(ShowPanel) {
       Signals S; ZeroMemory(S);
       UpdatePanel(S);
    }
-   
+
    Print("=============================================================");
-   Print("     MAABot v2.3.1 - PAINEL VISUAL CORRIGIDO                 ");
+   Print("     MAABot v2.4.0 - TRAILING STOP AVANÇADO                  ");
    Print("=============================================================");
    Print(" Estrategias: MA Cross, RSI, BBands, SuperTrend, AMA/KAMA,");
    Print("              Heikin Ashi, VWAP, Momentum, QQE");
@@ -106,7 +109,10 @@ int OnInit() {
    Print(" AllowLong=", AllowLong, " | AllowShort=", AllowShort);
    Print(" MinAgreeSignals=", MinAgreeSignals, " | Mode=", EnumToString(PrecisionMode));
    Print("=============================================================");
-   
+   Print(" TRAILING STOP: ", EnumToString(AdvTrail_Mode));
+   Print(" PROFIT LOCK: ", EnumToString(ProfitLock_Mode));
+   Print("=============================================================");
+
    return INIT_SUCCEEDED;
 }
 
@@ -114,6 +120,9 @@ int OnInit() {
 //|                           OnDeinit                               |
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason) {
+   // Liberar indicadores do Trailing Stop Avançado
+   DeinitTrailingIndicators();
+
    // Liberar handles de indicadores
    if(hEMAfast != INVALID_HANDLE) IndicatorRelease(hEMAfast);
    if(hEMAslow != INVALID_HANDLE) IndicatorRelease(hEMAslow);
@@ -135,7 +144,7 @@ void OnDeinit(const int reason) {
    if(hQQE_RSI != INVALID_HANDLE) IndicatorRelease(hQQE_RSI);
    
    DeletePanelObjects();
-   Print("MAABot v2.3.1 finalizado. Razao: ", reason);
+   Print("MAABot v2.4.0 finalizado. Razao: ", reason);
 }
 
 //+------------------------------------------------------------------+

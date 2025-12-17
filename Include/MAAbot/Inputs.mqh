@@ -55,6 +55,60 @@ input double   ATR_TrailMult         = 2.0;
 input bool     UseBreakEven          = true;
 input double   BE_Lock_R_Fraction    = 0.30;
 
+//==================== TRAILING STOP AVANÇADO (TRADING STOP) ===================//
+input group "=== TRAILING STOP AVANÇADO ==="
+input TrailingMode AdvTrail_Mode     = TRAIL_HYBRID;    // Modo de Trailing Principal
+input ProfitLockMode ProfitLock_Mode = LOCK_SCALED;     // Modo de Travamento de Lucro
+
+// --- CHANDELIER EXIT ---
+input group "=== CHANDELIER EXIT ==="
+input int      Chandelier_Period     = 22;              // Período para HH/LL
+input double   Chandelier_ATRMult    = 3.0;             // Multiplicador ATR
+input bool     Chandelier_UseClose   = false;           // Usar Close ao invés de High/Low
+
+// --- PARABOLIC SAR ---
+input group "=== PARABOLIC SAR ==="
+input double   PSAR_Step             = 0.02;            // Passo do SAR
+input double   PSAR_Maximum          = 0.2;             // Máximo do SAR
+input bool     PSAR_FilterTrend      = true;            // Só usar em tendência
+
+// --- MULTI-LEVEL TRAILING ---
+input group "=== MULTI-LEVEL TRAILING ==="
+input double   ML_Level1_R           = 1.0;             // Nível 1: Após 1R de lucro
+input double   ML_Trail1_R           = 0.5;             // Trail 1: Move SL para 0.5R
+input double   ML_Level2_R           = 2.0;             // Nível 2: Após 2R de lucro
+input double   ML_Trail2_R           = 1.0;             // Trail 2: Move SL para 1R
+input double   ML_Level3_R           = 3.0;             // Nível 3: Após 3R de lucro
+input double   ML_Trail3_R           = 2.0;             // Trail 3: Move SL para 2R
+input double   ML_Level4_R           = 4.0;             // Nível 4: Após 4R de lucro
+input double   ML_Trail4_ATR         = 1.5;             // Trail 4: ATR trailing apertado
+
+// --- TIME DECAY (APERTO POR TEMPO) ---
+input group "=== TIME DECAY STOP ==="
+input bool     TimeDecay_Enable      = true;            // Ativar aperto por tempo
+input int      TimeDecay_StartBars   = 20;              // Começar após N barras
+input int      TimeDecay_FullBars    = 80;              // Máximo aperto após N barras
+input double   TimeDecay_MinATRMult  = 1.0;             // ATR mínimo no aperto máximo
+input double   TimeDecay_MaxATRMult  = 3.0;             // ATR inicial
+
+// --- PROFIT LOCK ESCALADO ---
+input group "=== PROFIT LOCK ESCALADO ==="
+input double   Lock_Trigger1_R       = 1.0;             // Gatilho 1: Após 1R
+input double   Lock_Amount1          = 0.25;            // Travar 25% do lucro
+input double   Lock_Trigger2_R       = 2.0;             // Gatilho 2: Após 2R
+input double   Lock_Amount2          = 0.50;            // Travar 50% do lucro
+input double   Lock_Trigger3_R       = 3.0;             // Gatilho 3: Após 3R
+input double   Lock_Amount3          = 0.70;            // Travar 70% do lucro
+
+// --- TRAILING HÍBRIDO INTELIGENTE ---
+input group "=== TRAILING HÍBRIDO ==="
+input bool     Hybrid_UseTrendAdapt  = true;            // Adaptar à tendência
+input double   Hybrid_TrendLoose     = 1.3;             // Multiplicador em tendência forte
+input double   Hybrid_RangeTight     = 0.8;             // Multiplicador em range
+input bool     Hybrid_UseMomentum    = true;            // Usar momentum para ajustar
+input int      Hybrid_MomPeriod      = 10;              // Período do momentum
+input double   Hybrid_MomThreshold   = 0.001;           // Threshold do momentum
+
 //============================= LIMITES & DD GUARD ===========================//
 input group "=== LIMITES E PROTEÇÃO ==="
 input double   DailyLossLimitPercent = 3.0;
