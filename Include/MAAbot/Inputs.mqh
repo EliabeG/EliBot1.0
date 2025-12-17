@@ -55,59 +55,72 @@ input double   ATR_TrailMult         = 2.0;
 input bool     UseBreakEven          = true;
 input double   BE_Lock_R_Fraction    = 0.30;
 
-//==================== TRAILING STOP AVANÇADO (TRADING STOP) ===================//
-input group "=== TRAILING STOP AVANÇADO ==="
-input TrailingMode AdvTrail_Mode     = TRAIL_HYBRID;    // Modo de Trailing Principal
-input ProfitLockMode ProfitLock_Mode = LOCK_SCALED;     // Modo de Travamento de Lucro
+//==================== TRAILING STOP BASEADO NO ESTUDO ===================//
+// Referência: "Otimização Algorítmica e Precisão Estocástica na Formulação
+// de Estratégias de Trailing Stop: Uma Análise Exaustiva"
+//=========================================================================//
 
-// --- CHANDELIER EXIT ---
+input group "=== TRAILING STOP PRINCIPAL ==="
+input TrailingMode    AdvTrail_Mode         = TRAIL_HYBRID_STUDY;  // Modo de Trailing (HYBRID=Máxima Precisão)
+input TrailUpdateMode Trail_UpdateMode      = UPDATE_STEP;         // Modo de Atualização (STEP=Filtra Ruído)
+input ActivationMode  Trail_Activation      = ACTIVATE_AFTER_1_5R; // Ativação Atrasada (Evita saídas prematuras)
+input AssetType       Trail_AssetType       = ASSET_GOLD_XAUUSD;   // Tipo de Ativo (Calibra multiplicador)
+input MarketRegime    Trail_Regime          = REGIME_AUTO;         // Regime de Mercado (AUTO=Detecta via ADX)
+
+// --- CHANDELIER EXIT (Tabela 2: Muito Alta Precisão) ---
 input group "=== CHANDELIER EXIT ==="
-input int      Chandelier_Period     = 22;              // Período para HH/LL
-input double   Chandelier_ATRMult    = 3.0;             // Multiplicador ATR
-input bool     Chandelier_UseClose   = false;           // Usar Close ao invés de High/Low
+input int      Chandelier_Period           = 22;    // Período para Highest High/Lowest Low
+input double   Chandelier_ATRMult_Trend    = 3.0;   // Multiplicador ATR em Tendência (2.5-3.0 conservador)
+input double   Chandelier_ATRMult_Range    = 2.0;   // Multiplicador ATR em Range (mais apertado)
+input double   Chandelier_ATRMult_Volatile = 3.5;   // Multiplicador ATR em Volátil (3.5-4.0 cripto/forex)
+input bool     Chandelier_UseClose         = false; // Usar Close ao invés de High/Low
 
-// --- PARABOLIC SAR ---
+// --- MARKET STRUCTURE (Tabela 2: Alta Precisão) ---
+input group "=== MARKET STRUCTURE ==="
+input int      Structure_PivotLookback     = 10;    // Lookback para detecção de Pivôs (Swing High/Low)
+input double   Structure_ATRBuffer         = 1.0;   // Buffer ATR abaixo do Swing Low (proteção contra caça de SL)
+input bool     Structure_ResetOnBOS        = true;  // Apertar stop em Break of Structure (CHoCH)
+input int      Structure_MinBarsConfirm    = 2;     // Barras mínimas para confirmar pivô
+
+// --- STEP TRAILING (Tabela 1: Filtra Ruído) ---
+input group "=== STEP TRAILING ==="
+input double   Step_ATRMultiple            = 0.5;   // Tamanho do degrau em ATR (só move após 0.5 ATR)
+input int      Step_MinPoints              = 50;    // Degrau mínimo em pontos (fallback)
+input bool     Step_UseStructureSteps      = true;  // Alinhar degraus com níveis estruturais
+
+// --- PARABOLIC SAR (Tabela 2: Alta em Tendências Parabólicas) ---
 input group "=== PARABOLIC SAR ==="
-input double   PSAR_Step             = 0.02;            // Passo do SAR
-input double   PSAR_Maximum          = 0.2;             // Máximo do SAR
-input bool     PSAR_FilterTrend      = true;            // Só usar em tendência
+input double   PSAR_Step                   = 0.02;  // Fator de Aceleração Inicial
+input double   PSAR_Maximum                = 0.20;  // Fator de Aceleração Máximo
+input double   PSAR_ADX_Threshold          = 40.0;  // ADX mínimo para ativar SAR (tendência forte)
+input bool     PSAR_UseInClimaxOnly        = true;  // Usar SAR apenas em movimentos climáticos
 
-// --- MULTI-LEVEL TRAILING ---
-input group "=== MULTI-LEVEL TRAILING ==="
-input double   ML_Level1_R           = 1.0;             // Nível 1: Após 1R de lucro
-input double   ML_Trail1_R           = 0.5;             // Trail 1: Move SL para 0.5R
-input double   ML_Level2_R           = 2.0;             // Nível 2: Após 2R de lucro
-input double   ML_Trail2_R           = 1.0;             // Trail 2: Move SL para 1R
-input double   ML_Level3_R           = 3.0;             // Nível 3: Após 3R de lucro
-input double   ML_Trail3_R           = 2.0;             // Trail 3: Move SL para 2R
-input double   ML_Level4_R           = 4.0;             // Nível 4: Após 4R de lucro
-input double   ML_Trail4_ATR         = 1.5;             // Trail 4: ATR trailing apertado
+// --- ATIVAÇÃO ATRASADA (Seção 7.2 do Estudo) ---
+input group "=== ATIVAÇÃO ATRASADA ==="
+input double   Activation_R_Threshold      = 1.5;   // Ativar trailing após lucro > N×Risco (1.5R recomendado)
+input double   Activation_ATR_Threshold    = 2.0;   // Ou após lucro > N×ATR
+input bool     Activation_RequireBE        = false; // Exigir break-even antes de ativar trailing
 
-// --- TIME DECAY (APERTO POR TEMPO) ---
-input group "=== TIME DECAY STOP ==="
-input bool     TimeDecay_Enable      = true;            // Ativar aperto por tempo
-input int      TimeDecay_StartBars   = 20;              // Começar após N barras
-input int      TimeDecay_FullBars    = 80;              // Máximo aperto após N barras
-input double   TimeDecay_MinATRMult  = 1.0;             // ATR mínimo no aperto máximo
-input double   TimeDecay_MaxATRMult  = 3.0;             // ATR inicial
+// --- ADAPTAÇÃO DE REGIME (Seção 6 do Estudo) ---
+input group "=== ADAPTAÇÃO DE REGIME ==="
+input double   Regime_ADX_TrendThreshold   = 25.0;  // ADX > N = Tendência (stops mais soltos)
+input double   Regime_ADX_StrongThreshold  = 40.0;  // ADX > N = Tendência Forte/Parabólica
+input double   Regime_TrendMultiplier      = 1.3;   // Multiplicador em tendência (mais solto)
+input double   Regime_RangeMultiplier      = 0.7;   // Multiplicador em range (mais apertado)
+input double   Regime_VolatileMultiplier   = 1.5;   // Multiplicador em alta volatilidade
 
-// --- PROFIT LOCK ESCALADO ---
-input group "=== PROFIT LOCK ESCALADO ==="
-input double   Lock_Trigger1_R       = 1.0;             // Gatilho 1: Após 1R
-input double   Lock_Amount1          = 0.25;            // Travar 25% do lucro
-input double   Lock_Trigger2_R       = 2.0;             // Gatilho 2: Após 2R
-input double   Lock_Amount2          = 0.50;            // Travar 50% do lucro
-input double   Lock_Trigger3_R       = 3.0;             // Gatilho 3: Após 3R
-input double   Lock_Amount3          = 0.70;            // Travar 70% do lucro
+// --- HÍBRIDO DO ESTUDO (Seção 7.1 - Precisão Máxima) ---
+input group "=== HÍBRIDO DO ESTUDO ==="
+input bool     Hybrid_UseChandelier        = true;  // Incluir Chandelier no cálculo
+input bool     Hybrid_UseStructure         = true;  // Incluir Structure no cálculo
+input bool     Hybrid_UsePSAR              = true;  // Incluir PSAR em tendências fortes
+input bool     Hybrid_SelectHighest        = true;  // Selecionar o stop MAIS ALTO (máxima proteção)
+input bool     Hybrid_ApplyRatchet         = true;  // Lógica Ratchet: Stop NUNCA desce
 
-// --- TRAILING HÍBRIDO INTELIGENTE ---
-input group "=== TRAILING HÍBRIDO ==="
-input bool     Hybrid_UseTrendAdapt  = true;            // Adaptar à tendência
-input double   Hybrid_TrendLoose     = 1.3;             // Multiplicador em tendência forte
-input double   Hybrid_RangeTight     = 0.8;             // Multiplicador em range
-input bool     Hybrid_UseMomentum    = true;            // Usar momentum para ajustar
-input int      Hybrid_MomPeriod      = 10;              // Período do momentum
-input double   Hybrid_MomThreshold   = 0.001;           // Threshold do momentum
+// --- MÉTRICAS DE PERFORMANCE (Seção 8 do Estudo) ---
+input group "=== MÉTRICAS E DEBUG ==="
+input bool     Track_MFE_MAE               = true;  // Rastrear Maximum Favorable/Adverse Excursion
+input double   Target_MFE_Capture          = 0.60;  // Meta: Capturar 60%+ do MFE
 
 //============================= LIMITES & DD GUARD ===========================//
 input group "=== LIMITES E PROTEÇÃO ==="

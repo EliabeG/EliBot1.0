@@ -1,8 +1,19 @@
 //+------------------------------------------------------------------+
 //|                                                 TrailingStop.mqh |
-//|   MAAbot v2.3.1 - Estratégias Avançadas de Trading Stop          |
+//|   MAAbot v2.4.0 - Trailing Stop Baseado no Estudo Acadêmico      |
 //|                                     Autor: Eliabe N Oliveira     |
-//|   Implementação: Claude AI - Trailing Stop Profissional          |
+//+------------------------------------------------------------------+
+//| Referência: "Otimização Algorítmica e Precisão Estocástica na   |
+//| Formulação de Estratégias de Trailing Stop: Uma Análise Exaustiva"|
+//|                                                                  |
+//| Implementação completa das estratégias do estudo:                |
+//| - Chandelier Exit (Seção 3.2)                                    |
+//| - Market Structure com Buffer ATR (Seção 4.2)                    |
+//| - Step Trailing (Seção 2.2.2)                                    |
+//| - Parabolic SAR (Seção 5)                                        |
+//| - Ativação Atrasada (Seção 7.2)                                  |
+//| - Híbrido Inteligente (Seção 7.1)                                |
+//| - Adaptação de Regime (Seção 6)                                  |
 //+------------------------------------------------------------------+
 #ifndef __MAABOT_TRAILINGSTOP_MQH__
 #define __MAABOT_TRAILINGSTOP_MQH__
@@ -12,45 +23,53 @@
 #include "Globals.mqh"
 #include "Utils.mqh"
 
-//-------------------------- HANDLES PARA TRAILING -----------------------------//
+//===================== HANDLES DE INDICADORES ========================//
 int hPSAR = INVALID_HANDLE;
-int hMomentum = INVALID_HANDLE;
+int hADX_Trail = INVALID_HANDLE;
 
-//-------------------------- ESTRUTURA DE ESTADO DO TRAILING -------------------//
+//===================== ESTRUTURA DE ESTADO DO TRAILING ================//
+// Armazena informações de cada posição para trailing preciso
 struct TrailingState {
-   ulong    ticket;           // Ticket da posição
-   double   entryPrice;       // Preço de entrada
-   double   initialSL;        // SL inicial (para calcular R)
-   double   initialRisk;      // Risco inicial em pontos
-   double   highestPrice;     // Maior preço desde entrada (para buy)
-   double   lowestPrice;      // Menor preço desde entrada (para sell)
-   int      currentLevel;     // Nível atual do multi-level
-   datetime lastUpdate;       // Última atualização
-   int      barsInTrade;      // Barras desde entrada
+   ulong    ticket;              // Ticket da posição
+   double   entryPrice;          // Preço de entrada
+   double   initialSL;           // SL inicial
+   double   initialRiskPts;      // Risco inicial em pontos
+   double   highestPrice;        // Highest High desde entrada (BUY)
+   double   lowestPrice;         // Lowest Low desde entrada (SELL)
+   double   lastTrailStop;       // Último stop calculado pelo trailing
+   double   lastStepPrice;       // Último preço de referência do step
+   double   mfePrice;            // Maximum Favorable Excursion (preço)
+   double   maePrice;            // Maximum Adverse Excursion (preço)
+   bool     trailingActivated;   // Trailing já foi ativado?
+   bool     breakEvenReached;    // Break-even já atingido?
+   int      currentRegime;       // Regime detectado (0=range, 1=trend, 2=strong, 3=volatile)
+   datetime lastUpdate;          // Última atualização
+   int      barsInTrade;         // Barras desde entrada
 };
 
-// Array para armazenar estados das posições
+// Array global de estados
 TrailingState g_trailStates[];
 
-//-------------------------- INICIALIZAÇÃO ------------------------------------//
+//===================== INICIALIZAÇÃO/DESINICIALIZAÇÃO ================//
 void InitTrailingIndicators() {
-   if(AdvTrail_Mode == TRAIL_PSAR || AdvTrail_Mode == TRAIL_HYBRID) {
-      if(hPSAR == INVALID_HANDLE)
-         hPSAR = iSAR(InpSymbol, InpTF, PSAR_Step, PSAR_Maximum);
-   }
-   if(AdvTrail_Mode == TRAIL_HYBRID && Hybrid_UseMomentum) {
-      if(hMomentum == INVALID_HANDLE)
-         hMomentum = iMomentum(InpSymbol, InpTF, Hybrid_MomPeriod, PRICE_CLOSE);
-   }
+   // Parabolic SAR
+   if(hPSAR == INVALID_HANDLE)
+      hPSAR = iSAR(InpSymbol, InpTF, PSAR_Step, PSAR_Maximum);
+
+   // ADX para detecção de regime
+   if(hADX_Trail == INVALID_HANDLE)
+      hADX_Trail = iADX(InpSymbol, InpTF, 14);
+
+   ArrayFree(g_trailStates);
 }
 
 void DeinitTrailingIndicators() {
    if(hPSAR != INVALID_HANDLE) { IndicatorRelease(hPSAR); hPSAR = INVALID_HANDLE; }
-   if(hMomentum != INVALID_HANDLE) { IndicatorRelease(hMomentum); hMomentum = INVALID_HANDLE; }
+   if(hADX_Trail != INVALID_HANDLE) { IndicatorRelease(hADX_Trail); hADX_Trail = INVALID_HANDLE; }
    ArrayFree(g_trailStates);
 }
 
-//-------------------------- GERENCIAMENTO DE ESTADOS -------------------------//
+//===================== GERENCIAMENTO DE ESTADOS =======================//
 int FindTrailingState(ulong ticket) {
    for(int i = 0; i < ArraySize(g_trailStates); i++) {
       if(g_trailStates[i].ticket == ticket) return i;
@@ -60,26 +79,35 @@ int FindTrailingState(ulong ticket) {
 
 void AddTrailingState(ulong ticket, double entry, double sl, int type) {
    int idx = FindTrailingState(ticket);
-   if(idx >= 0) return; // Já existe
+   if(idx >= 0) return;
 
    int newSize = ArraySize(g_trailStates) + 1;
    ArrayResize(g_trailStates, newSize);
 
-   g_trailStates[newSize-1].ticket = ticket;
-   g_trailStates[newSize-1].entryPrice = entry;
-   g_trailStates[newSize-1].initialSL = sl;
-   g_trailStates[newSize-1].initialRisk = MathAbs(entry - sl) / Pt();
-   g_trailStates[newSize-1].highestPrice = (type == POSITION_TYPE_BUY) ? entry : 0;
-   g_trailStates[newSize-1].lowestPrice = (type == POSITION_TYPE_SELL) ? entry : 999999;
-   g_trailStates[newSize-1].currentLevel = 0;
-   g_trailStates[newSize-1].lastUpdate = TimeCurrent();
-   g_trailStates[newSize-1].barsInTrade = 0;
+   TrailingState state;
+   ZeroMemory(state);
+   state.ticket = ticket;
+   state.entryPrice = entry;
+   state.initialSL = sl;
+   state.initialRiskPts = (sl > 0) ? MathAbs(entry - sl) / Pt() : StopLossPoints;
+   state.highestPrice = entry;
+   state.lowestPrice = entry;
+   state.lastTrailStop = sl;
+   state.lastStepPrice = entry;
+   state.mfePrice = entry;
+   state.maePrice = entry;
+   state.trailingActivated = false;
+   state.breakEvenReached = false;
+   state.currentRegime = 0;
+   state.lastUpdate = TimeCurrent();
+   state.barsInTrade = 0;
+
+   g_trailStates[newSize-1] = state;
 }
 
 void RemoveTrailingState(ulong ticket) {
    int idx = FindTrailingState(ticket);
    if(idx < 0) return;
-
    int last = ArraySize(g_trailStates) - 1;
    if(idx != last) g_trailStates[idx] = g_trailStates[last];
    ArrayResize(g_trailStates, last);
@@ -93,301 +121,329 @@ void CleanupClosedPositions() {
    }
 }
 
-//========================== ESTRATÉGIA 1: CHANDELIER EXIT ===================//
-// O Chandelier Exit é um dos trailing stops mais eficazes do mercado.
-// Ele coloca o stop abaixo do Highest High (para compras) ou acima do
-// Lowest Low (para vendas) usando um múltiplo do ATR como distância.
-//==========================================================================//
-double CalcChandelierStop(int type, double atr) {
+//===================== DETECÇÃO DE REGIME (Seção 6) ===================//
+// Detecta automaticamente se estamos em tendência, range ou volatilidade alta
+int DetectMarketRegime(double &adxValue) {
+   if(Trail_Regime != REGIME_AUTO) {
+      adxValue = 0;
+      return (int)Trail_Regime;
+   }
+
+   if(hADX_Trail == INVALID_HANDLE) return 0;
+
+   double adx[1];
+   if(CopyBuffer(hADX_Trail, 0, 0, 1, adx) <= 0) return 0;
+   adxValue = adx[0];
+
+   // Regime baseado em ADX
+   if(adx[0] >= Regime_ADX_StrongThreshold) return 2;      // Tendência Forte/Parabólica
+   if(adx[0] >= Regime_ADX_TrendThreshold) return 1;       // Tendência Normal
+   return 0;                                                // Range/Consolidação
+}
+
+// Obtém multiplicador ATR baseado no regime e tipo de ativo
+double GetRegimeMultiplier(int regime) {
+   double baseMult = 3.0;
+
+   // Multiplicador base por tipo de ativo (Seção 3.2.1)
+   switch(Trail_AssetType) {
+      case ASSET_CONSERVATIVE:  baseMult = 2.75; break;  // 2.5-3.0
+      case ASSET_VOLATILE:      baseMult = 3.75; break;  // 3.5-4.0
+      case ASSET_INTRADAY:      baseMult = 1.75; break;  // 1.5-2.0
+      case ASSET_GOLD_XAUUSD:   baseMult = 3.25; break;  // 3.0-3.5 (otimizado)
+   }
+
+   // Ajuste por regime (Seção 6.1)
+   switch(regime) {
+      case 0: return baseMult * Regime_RangeMultiplier;      // Range: mais apertado
+      case 1: return baseMult * Regime_TrendMultiplier;      // Tendência: mais solto
+      case 2: return baseMult * Regime_VolatileMultiplier;   // Forte/Volátil: ainda mais solto
+      default: return baseMult;
+   }
+}
+
+//===================== CHANDELIER EXIT (Seção 3.2) ====================//
+// Fórmula: CE_long = HH_n - (ATR_n × M)
+// "A superioridade do Chandelier Exit reside na sua capacidade de reagir
+// instantaneamente a novos topos"
+double CalcChandelierExit(int type, double atr, int regime) {
    MqlRates r[];
    ArraySetAsSeries(r, true);
    int bars = Chandelier_Period + 2;
    if(CopyRates(InpSymbol, InpTF, 0, bars, r) < bars) return 0.0;
 
-   double pt = Pt();
-   double chandelierDist = Chandelier_ATRMult * atr;
+   // Seleciona multiplicador baseado no regime
+   double mult;
+   switch(regime) {
+      case 0: mult = Chandelier_ATRMult_Range; break;
+      case 1: mult = Chandelier_ATRMult_Trend; break;
+      case 2:
+      case 3: mult = Chandelier_ATRMult_Volatile; break;
+      default: mult = Chandelier_ATRMult_Trend;
+   }
+
+   double chandelierDist = atr * mult;
 
    if(type == POSITION_TYPE_BUY) {
-      // Para BUY: Stop abaixo do Highest High
-      double highestHigh = r[1].high;
+      // Highest High dos últimos N períodos
+      double hh = r[1].high;
       for(int i = 1; i <= Chandelier_Period; i++) {
          double val = Chandelier_UseClose ? r[i].close : r[i].high;
-         if(val > highestHigh) highestHigh = val;
+         if(val > hh) hh = val;
       }
-      return highestHigh - chandelierDist;
+      return hh - chandelierDist;
    }
    else {
-      // Para SELL: Stop acima do Lowest Low
-      double lowestLow = r[1].low;
+      // Lowest Low dos últimos N períodos
+      double ll = r[1].low;
       for(int i = 1; i <= Chandelier_Period; i++) {
          double val = Chandelier_UseClose ? r[i].close : r[i].low;
-         if(val < lowestLow) lowestLow = val;
+         if(val < ll) ll = val;
       }
-      return lowestLow + chandelierDist;
+      return ll + chandelierDist;
    }
 }
 
-//========================== ESTRATÉGIA 2: PARABOLIC SAR ====================//
-// O Parabolic SAR é excelente para trailing em tendências fortes.
-// Ele acelera à medida que o preço se move a favor, protegendo lucros.
-//==========================================================================//
-double CalcPSARStop(int type) {
+//===================== MARKET STRUCTURE (Seção 4.2) ===================//
+// "A colocação mais lógica e precisa para um trailing stop é logo abaixo
+// do último Fundo Ascendente (Swing Low) confirmado"
+// Fórmula: Stop = Swing Low - (1.0 × ATR)
+double CalcStructureStop(int type, double atr) {
+   MqlRates r[];
+   ArraySetAsSeries(r, true);
+   int bars = Structure_PivotLookback * 3 + 5;
+   if(CopyRates(InpSymbol, InpTF, 0, bars, r) < bars) return 0.0;
+
+   int lookback = Structure_PivotLookback;
+   int minBars = Structure_MinBarsConfirm;
+   double bufferDist = atr * Structure_ATRBuffer;
+
+   if(type == POSITION_TYPE_BUY) {
+      // Encontrar Swing Low confirmado (Pivô de Baixa)
+      // Um pivô é confirmado quando tem pelo menos minBars de cada lado
+      double swingLow = 0;
+      bool found = false;
+
+      for(int i = lookback; i < bars - lookback; i++) {
+         bool isPivot = true;
+         double candidate = r[i].low;
+
+         // Verificar se é o menor ponto na janela
+         for(int j = i - minBars; j <= i + minBars; j++) {
+            if(j != i && r[j].low < candidate) {
+               isPivot = false;
+               break;
+            }
+         }
+
+         if(isPivot) {
+            swingLow = candidate;
+            found = true;
+            break;
+         }
+      }
+
+      if(!found) return 0.0;
+
+      // Stop abaixo do Swing Low com buffer ATR (proteção contra stop hunting)
+      return swingLow - bufferDist;
+   }
+   else {
+      // Encontrar Swing High confirmado (Pivô de Alta)
+      double swingHigh = 0;
+      bool found = false;
+
+      for(int i = lookback; i < bars - lookback; i++) {
+         bool isPivot = true;
+         double candidate = r[i].high;
+
+         for(int j = i - minBars; j <= i + minBars; j++) {
+            if(j != i && r[j].high > candidate) {
+               isPivot = false;
+               break;
+            }
+         }
+
+         if(isPivot) {
+            swingHigh = candidate;
+            found = true;
+            break;
+         }
+      }
+
+      if(!found) return 0.0;
+
+      return swingHigh + bufferDist;
+   }
+}
+
+//===================== PARABOLIC SAR (Seção 5) ========================//
+// "O indicador Parabolic SAR foca no tempo e na aceleração"
+// Usar apenas quando ADX > 40 (tendência forte/parabólica)
+double CalcPSARStop(int type, double adxValue) {
    if(hPSAR == INVALID_HANDLE) return 0.0;
+
+   // Só usar SAR em tendências fortes (Seção 5.2)
+   if(PSAR_UseInClimaxOnly && adxValue < PSAR_ADX_Threshold) return 0.0;
 
    double sar[1];
    if(CopyBuffer(hPSAR, 0, 0, 1, sar) <= 0) return 0.0;
 
-   // Filtro de tendência - só usa PSAR se estiver na direção certa
-   if(PSAR_FilterTrend) {
-      if(type == POSITION_TYPE_BUY && sar[0] > Bid()) return 0.0; // SAR acima = sinal de venda
-      if(type == POSITION_TYPE_SELL && sar[0] < Ask()) return 0.0; // SAR abaixo = sinal de compra
-   }
+   // Validar que SAR está na direção correta
+   if(type == POSITION_TYPE_BUY && sar[0] > Bid()) return 0.0;
+   if(type == POSITION_TYPE_SELL && sar[0] < Ask()) return 0.0;
 
    return sar[0];
 }
 
-//========================== ESTRATÉGIA 3: MULTI-LEVEL TRAILING =============//
-// Sistema escalonado que move o stop em níveis definidos de lucro (em R).
-// Ideal para capturar movimentos maiores enquanto protege ganhos parciais.
-//==========================================================================//
-double CalcMultiLevelStop(int type, double entry, double currentSL, double riskPts, double atr, int &level) {
-   double pt = Pt();
-   double currentPrice = (type == POSITION_TYPE_BUY) ? Bid() : Ask();
-   double profitPts = (type == POSITION_TYPE_BUY) ? (currentPrice - entry) / pt : (entry - currentPrice) / pt;
-   double profitR = (riskPts > 0) ? profitPts / riskPts : 0;
+//===================== STEP TRAILING (Seção 2.2.2) ====================//
+// "O modelo em degraus introduz uma histerese intencional"
+// "Este método é frequentemente superior em precisão para swing trading"
+bool ShouldMoveStep(int type, double currentPrice, double lastStepPrice, double atr) {
+   if(Trail_UpdateMode != UPDATE_STEP) return true;
 
-   double newSL = currentSL;
-   int newLevel = level;
-
-   // Nível 4: Após ML_Level4_R, usa ATR trailing apertado
-   if(profitR >= ML_Level4_R) {
-      double atrTrail = atr * ML_Trail4_ATR;
-      if(type == POSITION_TYPE_BUY) {
-         double trailSL = currentPrice - atrTrail;
-         if(trailSL > newSL) { newSL = trailSL; newLevel = 4; }
-      }
-      else {
-         double trailSL = currentPrice + atrTrail;
-         if(newSL == 0 || trailSL < newSL) { newSL = trailSL; newLevel = 4; }
-      }
-   }
-   // Nível 3: Trava ML_Trail3_R do risco
-   else if(profitR >= ML_Level3_R && level < 3) {
-      if(type == POSITION_TYPE_BUY) {
-         newSL = entry + (ML_Trail3_R * riskPts * pt);
-      }
-      else {
-         newSL = entry - (ML_Trail3_R * riskPts * pt);
-      }
-      newLevel = 3;
-   }
-   // Nível 2: Trava ML_Trail2_R do risco
-   else if(profitR >= ML_Level2_R && level < 2) {
-      if(type == POSITION_TYPE_BUY) {
-         newSL = entry + (ML_Trail2_R * riskPts * pt);
-      }
-      else {
-         newSL = entry - (ML_Trail2_R * riskPts * pt);
-      }
-      newLevel = 2;
-   }
-   // Nível 1: Move para break-even + buffer
-   else if(profitR >= ML_Level1_R && level < 1) {
-      if(type == POSITION_TYPE_BUY) {
-         newSL = entry + (ML_Trail1_R * riskPts * pt);
-      }
-      else {
-         newSL = entry - (ML_Trail1_R * riskPts * pt);
-      }
-      newLevel = 1;
-   }
-
-   level = newLevel;
-   return newSL;
-}
-
-//========================== ESTRATÉGIA 4: TIME DECAY STOP ==================//
-// Stop que aperta progressivamente com o tempo. Isso evita que trades
-// fiquem abertos por muito tempo sem ir a lugar algum.
-//==========================================================================//
-double CalcTimeDecayStop(int type, double entry, int barsInTrade, double atr) {
-   if(!TimeDecay_Enable) return 0.0;
-   if(barsInTrade < TimeDecay_StartBars) return 0.0;
-
-   double pt = Pt();
-
-   // Calcula fator de decaimento (0 = início, 1 = máximo aperto)
-   double decayRange = TimeDecay_FullBars - TimeDecay_StartBars;
-   double progress = MathMin(1.0, (barsInTrade - TimeDecay_StartBars) / decayRange);
-
-   // Interpola entre ATR máximo e mínimo
-   double currentMult = TimeDecay_MaxATRMult - (progress * (TimeDecay_MaxATRMult - TimeDecay_MinATRMult));
-   double stopDist = atr * currentMult;
+   double stepSize = MathMax(atr * Step_ATRMultiple, Step_MinPoints * Pt());
 
    if(type == POSITION_TYPE_BUY) {
-      return Bid() - stopDist;
+      return (currentPrice - lastStepPrice) >= stepSize;
    }
    else {
-      return Ask() + stopDist;
+      return (lastStepPrice - currentPrice) >= stepSize;
    }
 }
 
-//========================== ESTRATÉGIA 5: PROFIT LOCK ESCALADO =============//
-// Trava uma porcentagem progressiva do lucro conforme o trade evolui.
-//==========================================================================//
-double CalcProfitLockStop(int type, double entry, double currentSL, double riskPts) {
-   if(ProfitLock_Mode == LOCK_OFF) return currentSL;
+//===================== VERIFICAÇÃO DE ATIVAÇÃO (Seção 7.2) ============//
+// "Trailing stops que ativam imediatamente após a entrada frequentemente
+// resultam em saídas prematuras devido ao ruído inicial"
+bool ShouldActivateTrailing(int type, double entry, double currentPrice,
+                            double riskPts, double atr, bool &breakEvenReached) {
+   if(Trail_Activation == ACTIVATE_IMMEDIATE) return true;
 
    double pt = Pt();
-   double currentPrice = (type == POSITION_TYPE_BUY) ? Bid() : Ask();
-   double profitPts = (type == POSITION_TYPE_BUY) ? (currentPrice - entry) / pt : (entry - currentPrice) / pt;
+   double profitPts = (type == POSITION_TYPE_BUY) ?
+                      (currentPrice - entry) / pt :
+                      (entry - currentPrice) / pt;
+
+   // Verificar break-even
+   if(profitPts >= 0) breakEvenReached = true;
+
    double profitR = (riskPts > 0) ? profitPts / riskPts : 0;
+   double profitATR = (atr > 0) ? (profitPts * pt) / atr : 0;
 
-   double lockPercent = 0.0;
-
-   if(ProfitLock_Mode == LOCK_BREAKEVEN) {
-      // Apenas break-even após 1R
-      if(profitR >= 1.0) lockPercent = 0.0; // SL no entry
+   switch(Trail_Activation) {
+      case ACTIVATE_AFTER_1R:
+         return profitR >= 1.0;
+      case ACTIVATE_AFTER_1_5R:
+         return profitR >= Activation_R_Threshold;
+      case ACTIVATE_AFTER_2R:
+         return profitR >= 2.0;
+      case ACTIVATE_AFTER_2ATR:
+         return profitATR >= Activation_ATR_Threshold;
+      case ACTIVATE_BREAKEVEN:
+         return breakEvenReached && Activation_RequireBE ? profitR >= 0 : profitR >= 0.5;
+      default:
+         return true;
    }
-   else if(ProfitLock_Mode == LOCK_SCALED) {
-      // Escalonado
-      if(profitR >= Lock_Trigger3_R) lockPercent = Lock_Amount3;
-      else if(profitR >= Lock_Trigger2_R) lockPercent = Lock_Amount2;
-      else if(profitR >= Lock_Trigger1_R) lockPercent = Lock_Amount1;
-   }
-   else if(ProfitLock_Mode == LOCK_AGGRESSIVE) {
-      // Agressivo: trava 50% de qualquer lucro após 0.5R
-      if(profitR >= 0.5) lockPercent = 0.5;
-   }
-
-   if(lockPercent > 0) {
-      double lockedProfit = profitPts * lockPercent;
-      if(type == POSITION_TYPE_BUY) {
-         double newSL = entry + (lockedProfit * pt);
-         if(newSL > currentSL || currentSL == 0) return newSL;
-      }
-      else {
-         double newSL = entry - (lockedProfit * pt);
-         if(currentSL == 0 || newSL < currentSL) return newSL;
-      }
-   }
-
-   return currentSL;
 }
 
-//========================== ESTRATÉGIA 6: HÍBRIDO INTELIGENTE ==============//
-// Combina as melhores características de todas as estratégias.
-// Adapta-se dinamicamente às condições do mercado.
-//==========================================================================//
-double CalcHybridStop(int type, double entry, double currentSL, double atr, int barsInTrade, double riskPts, int &level) {
-   double pt = Pt();
-   double currentPrice = (type == POSITION_TYPE_BUY) ? Bid() : Ask();
-   double profitPts = (type == POSITION_TYPE_BUY) ? (currentPrice - entry) / pt : (entry - currentPrice) / pt;
-   double profitR = (riskPts > 0) ? profitPts / riskPts : 0;
-
-   // Fatores de ajuste baseados no mercado
-   double trendFactor = 1.0;
-   double momentumFactor = 1.0;
-
-   // Adapta à tendência
-   if(Hybrid_UseTrendAdapt) {
-      if(g_trending && MathAbs(g_trendScore) > TrendScore_Thr) {
-         trendFactor = Hybrid_TrendLoose; // Mais solto em tendência forte
-      }
-      else {
-         trendFactor = Hybrid_RangeTight; // Mais apertado em range
-      }
-   }
-
-   // Adapta ao momentum
-   if(Hybrid_UseMomentum && hMomentum != INVALID_HANDLE) {
-      double mom[1];
-      if(CopyBuffer(hMomentum, 0, 0, 1, mom) > 0) {
-         double momValue = (mom[0] - 100.0) / 100.0; // Normaliza momentum
-         if(MathAbs(momValue) > Hybrid_MomThreshold) {
-            // Momentum forte na direção do trade = trailing mais solto
-            if((type == POSITION_TYPE_BUY && momValue > 0) ||
-               (type == POSITION_TYPE_SELL && momValue < 0)) {
-               momentumFactor = 1.2;
-            }
-            // Momentum contra = trailing mais apertado
-            else {
-               momentumFactor = 0.8;
-            }
-         }
-      }
-   }
-
-   // Combina fatores
-   double adjustedMult = trendFactor * momentumFactor;
-
-   // Array para armazenar candidatos de SL
-   double candidates[5];
+//===================== HÍBRIDO DO ESTUDO (Seção 7.1) ==================//
+// Combina Chandelier + Structure + SAR com lógica de seleção
+double CalcHybridStudyStop(int type, double entry, double currentSL,
+                           double atr, double adxValue, int regime,
+                           TrailingState &state) {
+   double candidates[3];
    int numCandidates = 0;
 
-   // Candidato 1: Chandelier Exit (ajustado)
-   double chandelierSL = CalcChandelierStop(type, atr * adjustedMult);
-   if(chandelierSL > 0) candidates[numCandidates++] = chandelierSL;
+   // Candidato 1: Chandelier Exit
+   if(Hybrid_UseChandelier) {
+      double chanStop = CalcChandelierExit(type, atr, regime);
+      if(chanStop > 0) candidates[numCandidates++] = chanStop;
+   }
 
-   // Candidato 2: PSAR (quando disponível)
-   double psarSL = CalcPSARStop(type);
-   if(psarSL > 0) candidates[numCandidates++] = psarSL;
+   // Candidato 2: Market Structure
+   if(Hybrid_UseStructure) {
+      double structStop = CalcStructureStop(type, atr);
+      if(structStop > 0) candidates[numCandidates++] = structStop;
+   }
 
-   // Candidato 3: Multi-Level (para níveis de lucro)
-   double mlSL = CalcMultiLevelStop(type, entry, currentSL, riskPts, atr * adjustedMult, level);
-   if(mlSL > 0 && mlSL != currentSL) candidates[numCandidates++] = mlSL;
-
-   // Candidato 4: Time Decay (após período inicial)
-   double tdSL = CalcTimeDecayStop(type, entry, barsInTrade, atr * adjustedMult);
-   if(tdSL > 0) candidates[numCandidates++] = tdSL;
-
-   // Candidato 5: Profit Lock
-   double plSL = CalcProfitLockStop(type, entry, currentSL, riskPts);
-   if(plSL > 0 && plSL != currentSL) candidates[numCandidates++] = plSL;
+   // Candidato 3: Parabolic SAR (apenas em tendência forte)
+   if(Hybrid_UsePSAR && regime >= 2) {
+      double sarStop = CalcPSARStop(type, adxValue);
+      if(sarStop > 0) candidates[numCandidates++] = sarStop;
+   }
 
    if(numCandidates == 0) return currentSL;
 
-   // Seleciona o melhor SL baseado na fase do trade
-   double bestSL = currentSL;
+   // Seleciona o stop (Seção 7.1: max para BUY, min para SELL)
+   double bestStop = currentSL;
 
    if(type == POSITION_TYPE_BUY) {
-      // Para BUY: queremos o SL mais alto (mais proteção)
-      for(int i = 0; i < numCandidates; i++) {
-         if(candidates[i] > bestSL) bestSL = candidates[i];
+      if(Hybrid_SelectHighest) {
+         // Para BUY: queremos o SL MAIS ALTO (máxima proteção)
+         bestStop = (currentSL > 0) ? currentSL : 0;
+         for(int i = 0; i < numCandidates; i++) {
+            if(candidates[i] > bestStop) bestStop = candidates[i];
+         }
       }
-      // Mas não pode ser maior que o preço atual menos um buffer
-      double maxSL = currentPrice - (atr * 0.5);
-      if(bestSL > maxSL) bestSL = maxSL;
+      else {
+         // Alternativa: média ponderada
+         double sum = 0;
+         for(int i = 0; i < numCandidates; i++) sum += candidates[i];
+         bestStop = sum / numCandidates;
+      }
+
+      // Limite: não pode estar acima do preço atual menos buffer
+      double maxSL = Bid() - (atr * 0.3);
+      if(bestStop > maxSL) bestStop = maxSL;
    }
    else {
-      // Para SELL: queremos o SL mais baixo (mais proteção)
-      bestSL = (currentSL > 0) ? currentSL : 999999;
-      for(int i = 0; i < numCandidates; i++) {
-         if(candidates[i] < bestSL && candidates[i] > 0) bestSL = candidates[i];
+      if(Hybrid_SelectHighest) {
+         // Para SELL: queremos o SL MAIS BAIXO (máxima proteção)
+         bestStop = (currentSL > 0) ? currentSL : 999999;
+         for(int i = 0; i < numCandidates; i++) {
+            if(candidates[i] < bestStop && candidates[i] > 0) bestStop = candidates[i];
+         }
+         if(bestStop > 999990) bestStop = 0;
       }
-      // Mas não pode ser menor que o preço atual mais um buffer
-      double minSL = currentPrice + (atr * 0.5);
-      if(bestSL < minSL) bestSL = minSL;
-      if(bestSL > 999990) bestSL = 0;
+      else {
+         double sum = 0;
+         for(int i = 0; i < numCandidates; i++) sum += candidates[i];
+         bestStop = sum / numCandidates;
+      }
+
+      // Limite: não pode estar abaixo do preço atual mais buffer
+      double minSL = Ask() + (atr * 0.3);
+      if(bestStop > 0 && bestStop < minSL) bestStop = minSL;
    }
 
-   return bestSL;
+   // LÓGICA RATCHET (Seção 2.1): Stop NUNCA retrocede
+   // "St = max(St-1, Pt - δ(vt))"
+   if(Hybrid_ApplyRatchet) {
+      if(type == POSITION_TYPE_BUY) {
+         if(currentSL > 0 && bestStop < currentSL) bestStop = currentSL;
+      }
+      else {
+         if(currentSL > 0 && bestStop > currentSL) bestStop = currentSL;
+      }
+   }
+
+   return bestStop;
 }
 
-//========================== FUNÇÃO PRINCIPAL DE TRAILING ===================//
-// Gerencia o trailing stop de todas as posições abertas
-//==========================================================================//
+//===================== FUNÇÃO PRINCIPAL ===============================//
 void ManageAdvancedTrailingStop(CTrade &trade) {
    if(AdvTrail_Mode == TRAIL_OFF) return;
-   if(MG_Mode == MG_GRID) return; // Grid tem sua própria gestão
+   if(MG_Mode == MG_GRID) return;
 
-   // Limpa estados de posições fechadas
    CleanupClosedPositions();
 
-   // Obtém ATR atual
+   // Obtém ATR e ADX
    double atr = 0.0;
    if(hATR != INVALID_HANDLE) GetBuf(hATR, 0, atr, 0);
    if(atr <= 0) return;
+
+   double adxValue = 0;
+   int regime = DetectMarketRegime(adxValue);
 
    double pt = Pt();
 
@@ -409,7 +465,7 @@ void ManageAdvancedTrailingStop(CTrade &trade) {
       double currentTP = PositionGetDouble(POSITION_TP);
       datetime tOpen = (datetime)PositionGetInteger(POSITION_TIME);
 
-      // Encontra ou cria estado do trailing
+      // Encontra ou cria estado
       int stateIdx = FindTrailingState(tk);
       if(stateIdx < 0) {
          AddTrailingState(tk, entry, currentSL, (int)type);
@@ -418,168 +474,137 @@ void ManageAdvancedTrailingStop(CTrade &trade) {
       }
 
       TrailingState state = g_trailStates[stateIdx];
-
-      // Atualiza barras no trade
-      long periodSec = PeriodSeconds(InpTF);
-      if(periodSec > 0) {
-         state.barsInTrade = (int)((TimeCurrent() - tOpen) / periodSec);
-      }
-
-      // Atualiza high/low
       double currentPrice = (type == POSITION_TYPE_BUY) ? Bid() : Ask();
-      if(type == POSITION_TYPE_BUY && currentPrice > state.highestPrice) {
-         state.highestPrice = currentPrice;
-      }
-      else if(type == POSITION_TYPE_SELL && currentPrice < state.lowestPrice) {
-         state.lowestPrice = currentPrice;
+
+      // Atualiza MFE/MAE para métricas (Seção 8)
+      if(Track_MFE_MAE) {
+         if(type == POSITION_TYPE_BUY) {
+            if(currentPrice > state.mfePrice) state.mfePrice = currentPrice;
+            if(currentPrice < state.maePrice) state.maePrice = currentPrice;
+            if(currentPrice > state.highestPrice) state.highestPrice = currentPrice;
+         }
+         else {
+            if(currentPrice < state.mfePrice) state.mfePrice = currentPrice;
+            if(currentPrice > state.maePrice) state.maePrice = currentPrice;
+            if(currentPrice < state.lowestPrice) state.lowestPrice = currentPrice;
+         }
       }
 
-      // Calcula risco inicial se não tiver
-      if(state.initialRisk <= 0 && currentSL > 0) {
-         state.initialRisk = MathAbs(entry - currentSL) / pt;
-      }
-      else if(state.initialRisk <= 0) {
-         state.initialRisk = StopLossPoints;
+      // Atualiza regime e barras
+      state.currentRegime = regime;
+      long periodSec = PeriodSeconds(InpTF);
+      if(periodSec > 0) state.barsInTrade = (int)((TimeCurrent() - tOpen) / periodSec);
+
+      // Verifica ativação atrasada (Seção 7.2)
+      if(!state.trailingActivated) {
+         state.trailingActivated = ShouldActivateTrailing(
+            (int)type, entry, currentPrice,
+            state.initialRiskPts, atr, state.breakEvenReached);
+
+         if(!state.trailingActivated) {
+            g_trailStates[stateIdx] = state;
+            continue;  // Ainda não ativou, mantém SL original
+         }
       }
 
+      // Verifica se deve mover (Step Trailing)
+      if(!ShouldMoveStep((int)type, currentPrice, state.lastStepPrice, atr)) {
+         g_trailStates[stateIdx] = state;
+         continue;  // Ainda não moveu o degrau mínimo
+      }
+
+      // Calcula novo stop baseado no modo
       double newSL = currentSL;
-      int level = state.currentLevel;
 
-      // Aplica estratégia de trailing selecionada
       switch(AdvTrail_Mode) {
-         case TRAIL_ATR:
-            {
-               double atrDist = atr * ATR_TrailMult;
-               if(type == POSITION_TYPE_BUY) {
-                  double trailSL = Bid() - atrDist;
-                  if(trailSL > currentSL || currentSL == 0) newSL = trailSL;
-               }
-               else {
-                  double trailSL = Ask() + atrDist;
-                  if(currentSL == 0 || trailSL < currentSL) newSL = trailSL;
-               }
-            }
+         case TRAIL_CHANDELIER:
+            newSL = CalcChandelierExit((int)type, atr, regime);
             break;
 
-         case TRAIL_CHANDELIER:
-            {
-               double chanSL = CalcChandelierStop((int)type, atr);
-               if(chanSL > 0) {
-                  if(type == POSITION_TYPE_BUY && (chanSL > currentSL || currentSL == 0)) {
-                     newSL = chanSL;
-                  }
-                  else if(type == POSITION_TYPE_SELL && (currentSL == 0 || chanSL < currentSL)) {
-                     newSL = chanSL;
-                  }
-               }
-            }
+         case TRAIL_MARKET_STRUCTURE:
+            newSL = CalcStructureStop((int)type, atr);
             break;
 
          case TRAIL_PSAR:
+            newSL = CalcPSARStop((int)type, adxValue);
+            break;
+
+         case TRAIL_STEP_ATR:
             {
-               double psarSL = CalcPSARStop((int)type);
-               if(psarSL > 0) {
-                  if(type == POSITION_TYPE_BUY && (psarSL > currentSL || currentSL == 0)) {
-                     newSL = psarSL;
-                  }
-                  else if(type == POSITION_TYPE_SELL && (currentSL == 0 || psarSL < currentSL)) {
-                     newSL = psarSL;
-                  }
+               double mult = GetRegimeMultiplier(regime);
+               if(type == POSITION_TYPE_BUY) {
+                  newSL = currentPrice - (atr * mult);
+               }
+               else {
+                  newSL = currentPrice + (atr * mult);
                }
             }
             break;
 
-         case TRAIL_MULTILEVEL:
-            newSL = CalcMultiLevelStop((int)type, entry, currentSL, state.initialRisk, atr, level);
-            break;
-
-         case TRAIL_TIME_DECAY:
-            {
-               double tdSL = CalcTimeDecayStop((int)type, entry, state.barsInTrade, atr);
-               if(tdSL > 0) {
-                  if(type == POSITION_TYPE_BUY && (tdSL > currentSL || currentSL == 0)) {
-                     newSL = tdSL;
-                  }
-                  else if(type == POSITION_TYPE_SELL && (currentSL == 0 || tdSL < currentSL)) {
-                     newSL = tdSL;
-                  }
-               }
-               // Também aplica profit lock no time decay
-               newSL = CalcProfitLockStop((int)type, entry, newSL, state.initialRisk);
-            }
-            break;
-
-         case TRAIL_HYBRID:
-            newSL = CalcHybridStop((int)type, entry, currentSL, atr, state.barsInTrade, state.initialRisk, level);
+         case TRAIL_HYBRID_STUDY:
+            newSL = CalcHybridStudyStop((int)type, entry, currentSL,
+                                        atr, adxValue, regime, state);
             break;
       }
 
-      // Valida e aplica novo SL
+      // Aplica lógica ratchet se não for híbrido (híbrido já aplica)
+      if(AdvTrail_Mode != TRAIL_HYBRID_STUDY && Hybrid_ApplyRatchet) {
+         if(type == POSITION_TYPE_BUY) {
+            if(currentSL > 0 && newSL < currentSL) newSL = currentSL;
+         }
+         else {
+            if(currentSL > 0 && newSL > currentSL) newSL = currentSL;
+         }
+      }
+
+      // Validação final e aplicação
       if(newSL > 0 && newSL != currentSL) {
-         // Garante que o SL só move na direção favorável
          bool shouldUpdate = false;
 
          if(type == POSITION_TYPE_BUY) {
             // Para BUY: SL só pode subir
             if(newSL > currentSL || currentSL == 0) {
-               // Não pode ser maior que o preço atual - spread
-               double maxSL = Bid() - (g_currentSpread * pt * 2);
+               double maxSL = Bid() - (g_currentSpread * pt * 3);
                if(newSL < maxSL) shouldUpdate = true;
             }
          }
          else {
             // Para SELL: SL só pode descer
             if(currentSL == 0 || newSL < currentSL) {
-               // Não pode ser menor que o preço atual + spread
-               double minSL = Ask() + (g_currentSpread * pt * 2);
+               double minSL = Ask() + (g_currentSpread * pt * 3);
                if(newSL > minSL) shouldUpdate = true;
             }
          }
 
-         // Aplica modificação se necessário
+         // Aplica modificação
          if(shouldUpdate) {
             newSL = NormalizeToDigits(sym, newSL);
-            if(MathAbs(newSL - currentSL) > pt) { // Só modifica se diferença > 1 pt
+            double diff = MathAbs(newSL - currentSL);
+
+            // Só modifica se diferença > spread (evita micro-ajustes)
+            if(diff > (g_currentSpread * pt)) {
                ModifyPositionByTicket(tk, newSL, currentTP, sym);
-               g_lastAction = StringFormat("Trail SL→%.2f", newSL);
+               state.lastTrailStop = newSL;
+               state.lastStepPrice = currentPrice;
+
+               // Atualiza ação no painel
+               string modeName = "";
+               switch(AdvTrail_Mode) {
+                  case TRAIL_CHANDELIER: modeName = "CE"; break;
+                  case TRAIL_MARKET_STRUCTURE: modeName = "MS"; break;
+                  case TRAIL_PSAR: modeName = "SAR"; break;
+                  case TRAIL_STEP_ATR: modeName = "STEP"; break;
+                  case TRAIL_HYBRID_STUDY: modeName = "HYB"; break;
+               }
+               g_lastAction = StringFormat("%s→%.2f (R%d)", modeName, newSL, regime);
                g_lastActionTime = TimeCurrent();
             }
          }
       }
 
       // Atualiza estado
-      state.currentLevel = level;
       state.lastUpdate = TimeCurrent();
       g_trailStates[stateIdx] = state;
-   }
-}
-
-//========================== FUNÇÃO DE EMERGÊNCIA ===========================//
-// Stop de emergência baseado em perda máxima por trade
-//==========================================================================//
-void CheckEmergencyStop(CTrade &trade, double maxLossPercent) {
-   if(maxLossPercent <= 0) return;
-
-   double equity = AccountInfoDouble(ACCOUNT_EQUITY);
-   double maxLoss = equity * (maxLossPercent / 100.0);
-
-   int total = PositionsTotal();
-   for(int i = total - 1; i >= 0; i--) {
-      ulong tk = PositionGetTicket(i);
-      if(!PositionSelectByTicket(tk)) continue;
-
-      string sym = PositionGetString(POSITION_SYMBOL);
-      if(sym != InpSymbol) continue;
-
-      long mg = (long)PositionGetInteger(POSITION_MAGIC);
-      if(mg != Magic) continue;
-
-      double profit = PositionGetDouble(POSITION_PROFIT);
-      if(profit < -maxLoss) {
-         trade.PositionClose(tk);
-         g_lastAction = "EMERGENCY STOP!";
-         g_lastActionTime = TimeCurrent();
-      }
    }
 }
 
