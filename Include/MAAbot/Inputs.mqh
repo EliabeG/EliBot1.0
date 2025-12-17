@@ -145,6 +145,15 @@ input bool               DT_AggAllowAllIn     = true;               // Permitir 
 input int                DT_AggMaxPositions   = 10;                 // Máximo de posições simultâneas
 input double             DT_AggMaxRiskPercent = 100.0;              // Risco máximo % (100 = toda banca)
 
+input group "=== META DIÁRIA - OPERAÇÃO OBRIGATÓRIA ==="
+input bool               DT_ForceDailyTrade   = true;               // FORÇAR operação diária (obrigatório)
+input int                DT_ForceAfterMinutes = 120;                // Forçar após N minutos sem trade
+input int                DT_ForceAggressiveMin= 60;                 // Entra agressivo N min sem trade
+input double             DT_ForceMinThreshold = 0.3;                // Threshold mínimo forçado (30%)
+input int                DT_ForceMinSignals   = 1;                  // Mínimo de sinais forçado
+input bool               DT_ForceIgnoreFilters= true;               // Ignorar filtros quando forçado
+input double             DT_ForceProgressiveReduce = 0.05;          // Redução progressiva a cada 30min
+
 input group "=== META DIÁRIA - PROTEÇÃO DE LUCRO ==="
 input DailyProfitProtection DT_ProfitProtection = PROFIT_PROT_OFF; // Proteção após meta
 input double             DT_LockProfitPercent = 50.0;               // % do lucro a proteger

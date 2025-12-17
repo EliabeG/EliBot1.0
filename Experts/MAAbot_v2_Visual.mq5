@@ -1,20 +1,25 @@
 //+------------------------------------------------------------------+
 //|                                         MAAbot_v2_Visual.mq5     |
 //|   XAUUSD M15 - Ensemble + Trend-Aware + TP/SL Precisos + Hedge   |
-//|   v2.5.1 - META DIÁRIA APRIMORADA + TRAILING AVANÇADO            |
+//|   v2.5.2 - META DIÁRIA + OPERAÇÃO OBRIGATÓRIA                    |
 //|                                     Autor: Eliabe N Oliveira     |
 //|                                      Data: 17/12/2025            |
+//+------------------------------------------------------------------+
+//| NOVIDADES v2.5.2:                                                 |
+//| - OPERAÇÃO OBRIGATÓRIA: Bot é FORÇADO a operar todos os dias     |
+//| - Modo forçado ativa após X minutos sem trades                   |
+//| - Redução PROGRESSIVA de thresholds ao longo do dia              |
+//| - Ignora filtros gradualmente para garantir entrada              |
+//| - Gráfico de backtest: linha crescente 1% ao dia (SEM GAPS)      |
 //+------------------------------------------------------------------+
 //| NOVIDADES v2.5.1:                                                 |
 //| - Monitoramento de saldo INDEPENDENTE a cada tick                |
 //| - Fechamento AUTOMÁTICO ao atingir meta (garante 1% exato)       |
 //| - Bloqueio TOTAL de operações após meta (só opera amanhã)        |
-//| - Gráfico de backtest: linha crescente 1% ao dia                 |
-//| - Respeito total ao horário de operação definido                 |
 //+------------------------------------------------------------------+
 #property strict
-#property description "XAUUSD M15 — v2.5.1 - Meta Diária Aprimorada"
-#property version  "2.51"
+#property description "XAUUSD M15 — v2.5.2 - Meta Diária + Operação Obrigatória"
+#property version  "2.52"
 
 //+------------------------------------------------------------------+
 //|                    INCLUDES - MÓDULOS DO EA                       |
@@ -111,7 +116,7 @@ int OnInit() {
    }
 
    Print("=============================================================");
-   Print("     MAABot v2.5.1 - META DIÁRIA APRIMORADA                  ");
+   Print("     MAABot v2.5.2 - OPERAÇÃO OBRIGATÓRIA                    ");
    Print("=============================================================");
    Print(" Estrategias: MA Cross, RSI, BBands, SuperTrend, AMA/KAMA,");
    Print("              Heikin Ashi, VWAP, Momentum, QQE");
@@ -123,16 +128,21 @@ int OnInit() {
    Print(" PROFIT LOCK: ", EnumToString(ProfitLock_Mode));
    Print("=============================================================");
    if(DT_Mode != DTARGET_OFF) {
-      Print(" >>>>>> SISTEMA META DIÁRIA v2.5.1 <<<<<<");
+      Print(" >>>>>> SISTEMA META DIÁRIA v2.5.2 <<<<<<");
       Print(" META DIÁRIA: ", EnumToString(DT_Mode));
       Print(" META: ", DoubleToString(DT_TargetPercent, 2), "% ao dia");
       Print(" JUROS COMPOSTOS: ", DT_CompoundDaily ? "ATIVADO" : "DESATIVADO");
       Print(" MODO AGRESSIVO: ", DT_EnableAggressive ? "ATIVADO" : "DESATIVADO");
       Print(" ----------------------------------------");
-      Print(" [NOVO] Monitoramento independente: ATIVO");
-      Print(" [NOVO] Fecha ao atingir meta: ", DT_CloseOnTarget ? "SIM" : "NAO");
-      Print(" [NOVO] Bloqueia após meta: ", DT_BlockAfterTarget ? "SIM" : "NAO");
-      Print(" [NOVO] Horário: ", DT_StartHour, ":", DT_StartMinute, " - ", DT_EndHour, ":", DT_EndMinute);
+      Print(" [v2.5.1] Monitoramento independente: ATIVO");
+      Print(" [v2.5.1] Fecha ao atingir meta: ", DT_CloseOnTarget ? "SIM" : "NAO");
+      Print(" [v2.5.1] Bloqueia após meta: ", DT_BlockAfterTarget ? "SIM" : "NAO");
+      Print(" ----------------------------------------");
+      Print(" [v2.5.2] OPERAÇÃO OBRIGATÓRIA: ", DT_ForceDailyTrade ? "ATIVADO" : "DESATIVADO");
+      Print(" [v2.5.2] Forçar após: ", DT_ForceAfterMinutes, " min sem trade");
+      Print(" [v2.5.2] Threshold mínimo: ", DT_ForceMinThreshold * 100, "%");
+      Print(" [v2.5.2] Sinais mínimos: ", DT_ForceMinSignals);
+      Print(" [v2.5.2] Horário: ", DT_StartHour, ":", DT_StartMinute, " - ", DT_EndHour, ":", DT_EndMinute);
       Print("=============================================================");
    }
 
@@ -170,7 +180,7 @@ void OnDeinit(const int reason) {
    if(hQQE_RSI != INVALID_HANDLE) IndicatorRelease(hQQE_RSI);
    
    DeletePanelObjects();
-   Print("MAABot v2.5.1 finalizado. Razao: ", reason);
+   Print("MAABot v2.5.2 finalizado. Razao: ", reason);
 }
 
 //+------------------------------------------------------------------+
@@ -287,28 +297,40 @@ void OnTick() {
       // Verifica se pode abrir novo trade baseado na meta diária
       bool canOpenDT = CanOpenNewTrade();
 
-      // Ajusta thresholds se em modo agressivo
+      // Ajusta thresholds se em modo agressivo OU forçado
       double thrL_adj = thrL;
       double thrS_adj = thrS;
       int minSignals_adj = MinAgreeSignals;
       bool ignoreFilters = false;
 
-      if(IsAggressiveModeActive()) {
-         double aggMult = GetAggressiveThresholdMultiplier();
-         thrL_adj = thrL * aggMult;
-         thrS_adj = thrS * aggMult;
-         minSignals_adj = GetAggressiveMinSignals();
-         ignoreFilters = ShouldIgnoreFilters();
+      // NOVO: Usa funções COMBINADAS (agressivo + forçado)
+      // Isso garante que o bot opere todos os dias
+      if(IsAggressiveModeActive() || IsForcedTradingMode()) {
+         // Usa o multiplicador mais permissivo (menor)
+         double combinedMult = GetCombinedThresholdMultiplier();
+         thrL_adj = thrL * combinedMult;
+         thrS_adj = thrS * combinedMult;
+
+         // Usa o mínimo de sinais mais permissivo (menor)
+         minSignals_adj = GetCombinedMinSignals();
+
+         // Ignora filtros se agressivo OU forçado
+         ignoreFilters = ShouldIgnoreFiltersCombined();
 
          // Atualiza status no painel
-         g_statusMsg = GetDailyStatusText();
+         if(IsForcedTradingMode()) {
+            g_statusMsg = StringFormat("FORÇADO Lv%d | Thr: %.0f%% | Sinais: %d",
+               GetForceLevelReductions(), combinedMult*100, minSignals_adj);
+         } else {
+            g_statusMsg = GetDailyStatusText();
+         }
       }
 
       // Usa os valores ajustados para decisão
       bool wantBuy = AllowLong && (g_signalsAgreeL >= minSignals_adj) && (pL >= thrL_adj);
       bool wantSell = AllowShort && (g_signalsAgreeS >= minSignals_adj) && (pS >= thrS_adj);
 
-      // Structure lock (pode ser ignorado no modo agressivo)
+      // Structure lock (pode ser ignorado no modo agressivo/forçado)
       if(UseStructureLock && !ignoreFilters) {
          wantBuy = wantBuy && StructureOK(S, +1);
          wantSell = wantSell && StructureOK(S, -1);

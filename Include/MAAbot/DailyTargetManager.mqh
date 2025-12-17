@@ -47,6 +47,11 @@ struct DailyTargetState {
    datetime    aggressiveStartTime;   // Hora que iniciou modo agressivo
    int         aggressiveTradesOpened;// Trades abertos no modo agressivo
    double      aggressivePL;          // P/L do modo agressivo
+   // NOVOS CAMPOS - Operação Forçada
+   bool        forceMode;             // Modo forçado ativo (obrigatório operar)
+   datetime    lastTradeTime;         // Hora do último trade
+   datetime    forceStartTime;        // Hora que iniciou modo forçado
+   int         forceLevelReductions;  // Número de reduções aplicadas
 };
 
 // Estado global do dia
@@ -75,6 +80,10 @@ string g_dt_statusText = "";          // Texto de status
 // Variáveis para controle de bloqueio
 bool   g_dt_tradingBlocked = false;   // Trading bloqueado após meta
 datetime g_dt_lastTargetHitDay = 0;   // Dia que atingiu a meta
+
+// Variáveis para operação forçada
+bool   g_dt_forceMode = false;        // Modo forçado ativo
+int    g_dt_minutesWithoutTrade = 0;  // Minutos sem trade hoje
 
 //===================== INICIALIZAÇÃO =====================//
 void InitDailyTargetManager() {
@@ -537,6 +546,15 @@ void CheckAggressiveMode() {
       }
    }
 
+   // NOVO: Entra em modo agressivo se não fez NENHUM trade há muito tempo
+   if(!shouldBeAggressive && DT_ForceDailyTrade) {
+      int minutesWithoutTrade = GetMinutesSinceLastTrade();
+      if(minutesWithoutTrade >= DT_ForceAggressiveMin && g_dtState.tradesOpened == 0) {
+         shouldBeAggressive = true;
+         Print(">>> AGRESSIVO FORÇADO: ", minutesWithoutTrade, " minutos sem trades <<<");
+      }
+   }
+
    if(shouldBeAggressive && !g_dtState.aggressiveMode) {
       // Ativa modo agressivo
       g_dtState.aggressiveMode = true;
@@ -586,6 +604,134 @@ void UpdateAggressiveLevel() {
       g_dtState.currentAggLevel = newLevel;
       Print("Nível de Agressividade: ", EnumToString(newLevel));
    }
+}
+
+//===================== OPERAÇÃO FORÇADA (OBRIGATÓRIO OPERAR) =====================//
+// Estas funções garantem que o bot opere TODOS OS DIAS, mesmo que precise
+// reduzir thresholds e ignorar filtros progressivamente
+//================================================================================//
+
+// Retorna minutos desde o início do dia de trading
+int GetMinutesSinceDayStart() {
+   if(g_dtState.dayStart == 0) return 0;
+
+   datetime now = TimeCurrent();
+   if(now < g_dtState.dayStart) return 0;
+
+   return (int)((now - g_dtState.dayStart) / 60);
+}
+
+// Retorna minutos desde o último trade (ou início do dia se nenhum trade)
+int GetMinutesSinceLastTrade() {
+   datetime reference = g_dtState.lastTradeTime;
+   if(reference == 0) {
+      reference = g_dtState.dayStart;
+   }
+   if(reference == 0) return 0;
+
+   datetime now = TimeCurrent();
+   if(now < reference) return 0;
+
+   return (int)((now - reference) / 60);
+}
+
+// Verifica e ativa modo de operação forçada
+void CheckForcedTradingMode() {
+   if(!DT_ForceDailyTrade) return;
+   if(g_dtState.targetHit) return;
+   if(!IsInDailyTradingWindow()) return;
+
+   int minutesSinceStart = GetMinutesSinceDayStart();
+   int minutesSinceLastTrade = GetMinutesSinceLastTrade();
+
+   // Atualiza minutos sem trade
+   g_dt_minutesWithoutTrade = minutesSinceLastTrade;
+
+   // Se passou muito tempo sem trade, entra em modo forçado
+   if(minutesSinceLastTrade >= DT_ForceAfterMinutes && !g_dtState.forceMode) {
+      g_dtState.forceMode = true;
+      g_dtState.forceStartTime = TimeCurrent();
+      g_dtState.forceLevelReductions = 0;
+      g_dt_forceMode = true;
+
+      Print("=====================================================");
+      Print(">>> MODO FORÇADO ATIVADO - OBRIGATÓRIO OPERAR! <<<");
+      Print("Minutos sem trade: ", minutesSinceLastTrade);
+      Print("Trades hoje: ", g_dtState.tradesOpened);
+      Print("=====================================================");
+   }
+
+   // Atualiza nível de redução progressiva (a cada 30 minutos)
+   if(g_dtState.forceMode) {
+      int minutesInForceMode = (int)((TimeCurrent() - g_dtState.forceStartTime) / 60);
+      int newReductions = minutesInForceMode / 30; // Uma redução a cada 30 min
+
+      if(newReductions > g_dtState.forceLevelReductions) {
+         g_dtState.forceLevelReductions = newReductions;
+         Print(">>> REDUÇÃO FORÇADA NÍVEL ", g_dtState.forceLevelReductions, " <<<");
+      }
+   }
+}
+
+// Verifica se está em modo de operação forçada
+bool IsForcedTradingMode() {
+   return g_dtState.forceMode || g_dt_forceMode;
+}
+
+// Retorna o multiplicador de threshold para modo forçado
+// Reduz progressivamente o threshold para garantir entrada
+double GetForcedThresholdMultiplier() {
+   if(!IsForcedTradingMode()) return 1.0;
+
+   // Começa em 80% e reduz 5% a cada nível
+   double baseReduction = 0.2; // Começa com 20% de redução
+   double progressiveReduction = g_dtState.forceLevelReductions * DT_ForceProgressiveReduce;
+
+   double multiplier = 1.0 - baseReduction - progressiveReduction;
+
+   // Mínimo de 30% do threshold (DT_ForceMinThreshold)
+   return MathMax(DT_ForceMinThreshold, multiplier);
+}
+
+// Retorna mínimo de sinais para modo forçado
+int GetForcedMinSignals() {
+   if(!IsForcedTradingMode()) return MinAgreeSignals;
+
+   // Reduz requisito de sinais progressivamente
+   int reduced = MinAgreeSignals - g_dtState.forceLevelReductions;
+
+   return MathMax(DT_ForceMinSignals, reduced);
+}
+
+// Verifica se deve ignorar filtros no modo forçado
+bool ShouldIgnoreFiltersForced() {
+   if(!IsForcedTradingMode()) return false;
+
+   // Ignora filtros após algumas reduções ou se configurado
+   return DT_ForceIgnoreFilters && (g_dtState.forceLevelReductions >= 2);
+}
+
+// Retorna multiplicador combinado (agressivo + forçado)
+double GetCombinedThresholdMultiplier() {
+   double aggMult = GetAggressiveThresholdMultiplier();
+   double forceMult = GetForcedThresholdMultiplier();
+
+   // Usa o menor (mais permissivo)
+   return MathMin(aggMult, forceMult);
+}
+
+// Retorna mínimo de sinais combinado (agressivo + forçado)
+int GetCombinedMinSignals() {
+   int aggSignals = GetAggressiveMinSignals();
+   int forceSignals = GetForcedMinSignals();
+
+   // Usa o menor (mais permissivo)
+   return MathMin(aggSignals, forceSignals);
+}
+
+// Verifica se deve ignorar filtros (agressivo OU forçado)
+bool ShouldIgnoreFiltersCombined() {
+   return ShouldIgnoreFilters() || ShouldIgnoreFiltersForced();
 }
 
 //===================== CÁLCULO DE LOTE AGRESSIVO =====================//
@@ -779,6 +925,9 @@ void ManageDailyTarget() {
 
    // Verifica modo agressivo
    CheckAggressiveMode();
+
+   // NOVO: Verifica modo de operação forçada (obrigatório operar)
+   CheckForcedTradingMode();
 
    // Atualiza proteção de lucro (trailing)
    if(g_dtState.targetHit && DT_ProfitProtection == PROFIT_PROT_TRAIL) {
@@ -1004,6 +1153,14 @@ void OnDailyTargetTradeOpened() {
    if(DT_Mode == DTARGET_OFF) return;
 
    g_dtState.tradesOpened++;
+   g_dtState.lastTradeTime = TimeCurrent(); // Registra hora do trade
+
+   // Reseta modo forçado quando um trade é aberto
+   if(g_dtState.forceMode) {
+      Print(">>> Trade aberto - Modo forçado temporariamente pausado <<<");
+      // Não reseta completamente, apenas pausa
+      // O modo pode voltar se passar mais tempo sem trades
+   }
 
    if(g_dtState.aggressiveMode) {
       g_dtState.aggressiveTradesOpened++;
@@ -1079,6 +1236,16 @@ bool IsTradingBlockedAfterTarget() {
 // Retorna a data que a meta foi atingida
 datetime GetLastTargetHitDay() {
    return g_dt_lastTargetHitDay;
+}
+
+// Retorna o nível de reduções forçadas
+int GetForceLevelReductions() {
+   return g_dtState.forceLevelReductions;
+}
+
+// Retorna minutos sem trade
+int GetMinutesWithoutTrade() {
+   return g_dt_minutesWithoutTrade;
 }
 
 #endif // __MAABOT_DAILYTARGETMANAGER_MQH__
