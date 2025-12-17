@@ -10,6 +10,7 @@
 #include "Inputs.mqh"
 #include "Globals.mqh"
 #include "Utils.mqh"
+#include "TrailingStop.mqh"
 
 //-------------------------- SL/TP STRUCTURE --------------------------------//
 int SLPoints_Structure(int dir, int lookback) {
@@ -89,78 +90,88 @@ void CalcStopsTP_Regime(int dir, bool trending, int &sl_pts_out, int &tp_pts_out
 //-------------------------- GESTÃO PER-TRADE --------------------------------//
 void ManagePerTrade(CTrade &trade) {
    if(MG_Mode == MG_GRID) return;
-   
+
+   // ======== TRAILING STOP AVANÇADO ========
+   // Se o modo avançado estiver ativo, usa o novo sistema
+   if(AdvTrail_Mode != TRAIL_OFF) {
+      ManageAdvancedTrailingStop(trade);
+   }
+
    int total = PositionsTotal();
    for(int i = 0; i < total; i++) {
-      ulong tk = PositionGetTicket(i); 
+      ulong tk = PositionGetTicket(i);
       if(!PositionSelectByTicket(tk)) continue;
-      string sym = PositionGetString(POSITION_SYMBOL); 
-      if(sym != InpSymbol) continue; 
-      long mg = (long)PositionGetInteger(POSITION_MAGIC); 
+      string sym = PositionGetString(POSITION_SYMBOL);
+      if(sym != InpSymbol) continue;
+      long mg = (long)PositionGetInteger(POSITION_MAGIC);
       if(mg != Magic) continue;
-      
-      long type = (long)PositionGetInteger(POSITION_TYPE); 
-      double price = PositionGetDouble(POSITION_PRICE_OPEN); 
-      double sl = PositionGetDouble(POSITION_SL); 
+
+      long type = (long)PositionGetInteger(POSITION_TYPE);
+      double price = PositionGetDouble(POSITION_PRICE_OPEN);
+      double sl = PositionGetDouble(POSITION_SL);
       double tp = PositionGetDouble(POSITION_TP);
-      datetime tOpen = (datetime)PositionGetInteger(POSITION_TIME); 
+      datetime tOpen = (datetime)PositionGetInteger(POSITION_TIME);
       double bid = Bid(), ask = Ask(), pt = Pt();
-      
-      if(MaxBarsInTrade > 0) { 
+
+      if(MaxBarsInTrade > 0) {
          long periodSec = PeriodSeconds(InpTF);
          if(periodSec > 0) {
-            int bars = (int)((TimeCurrent() - tOpen) / periodSec); 
-            if(bars >= MaxBarsInTrade) { 
+            int bars = (int)((TimeCurrent() - tOpen) / periodSec);
+            if(bars >= MaxBarsInTrade) {
                trade.PositionClose(tk);
                g_lastAction = "Saida por tempo"; g_lastActionTime = TimeCurrent();
-               continue; 
-            } 
+               continue;
+            }
          }
       }
-      
-      if(ExitOnVWAPCross) { 
-         double vwap = 0.0; 
+
+      if(ExitOnVWAPCross) {
+         double vwap = 0.0;
          if(GetSessionVWAP(InpSymbol, VWAP_TF, VWAP_UseRealVolume, vwap)) {
-            if(type == POSITION_TYPE_BUY && bid < vwap) { 
+            if(type == POSITION_TYPE_BUY && bid < vwap) {
                trade.PositionClose(tk);
                g_lastAction = "Saida VWAP Buy"; g_lastActionTime = TimeCurrent();
-               continue; 
+               continue;
             }
-            if(type == POSITION_TYPE_SELL && ask > vwap) { 
+            if(type == POSITION_TYPE_SELL && ask > vwap) {
                trade.PositionClose(tk);
                g_lastAction = "Saida VWAP Sell"; g_lastActionTime = TimeCurrent();
-               continue; 
-            } 
-         } 
-      }
-      
-      double rPts = (sl > 0.0) ? MathAbs(price - sl) / pt : StopLossPoints;
-      
-      if(UseATRTrailing) { 
-         double atr = 0.0; GetBuf(hATR, 0, atr, 0); 
-         if(atr > 0.0) {
-            if(type == POSITION_TYPE_BUY) { 
-               double nsl = bid - ATR_TrailMult * atr; 
-               if(sl == 0.0 || nsl > sl) ModifyPositionByTicket(tk, nsl, tp, sym); 
+               continue;
             }
-            else { 
-               double nsl = ask + ATR_TrailMult * atr; 
-               if(sl == 0.0 || nsl < sl) ModifyPositionByTicket(tk, nsl, tp, sym); 
-            } 
-         } 
+         }
       }
-      
-      if(UseBreakEven && rPts > 0.0) {
+
+      double rPts = (sl > 0.0) ? MathAbs(price - sl) / pt : StopLossPoints;
+
+      // ======== TRAILING SIMPLES (legado) ========
+      // Só usa se o trailing avançado estiver desligado
+      if(AdvTrail_Mode == TRAIL_OFF && UseATRTrailing) {
+         double atr = 0.0; GetBuf(hATR, 0, atr, 0);
+         if(atr > 0.0) {
+            if(type == POSITION_TYPE_BUY) {
+               double nsl = bid - ATR_TrailMult * atr;
+               if(sl == 0.0 || nsl > sl) ModifyPositionByTicket(tk, nsl, tp, sym);
+            }
+            else {
+               double nsl = ask + ATR_TrailMult * atr;
+               if(sl == 0.0 || nsl < sl) ModifyPositionByTicket(tk, nsl, tp, sym);
+            }
+         }
+      }
+
+      // ======== BREAK-EVEN (legado) ========
+      // Só usa se o profit lock avançado estiver desligado
+      if(AdvTrail_Mode == TRAIL_OFF && UseBreakEven && rPts > 0.0) {
          if(type == POSITION_TYPE_BUY) {
-            double gain = (bid - price) / pt; 
-            if(gain >= rPts) { 
+            double gain = (bid - price) / pt;
+            if(gain >= rPts) {
                double nsl = price + BE_Lock_R_Fraction * rPts * pt;
                if(sl == 0.0 || (nsl > sl && MathAbs(nsl - sl) > pt)) ModifyPositionByTicket(tk, nsl, tp, sym);
             }
          }
          else {
-            double gain = (price - ask) / pt; 
-            if(gain >= rPts) { 
+            double gain = (price - ask) / pt;
+            if(gain >= rPts) {
                double nsl = price - BE_Lock_R_Fraction * rPts * pt;
                if(sl == 0.0 || (nsl < sl && MathAbs(nsl - sl) > pt)) ModifyPositionByTicket(tk, nsl, tp, sym);
             }
