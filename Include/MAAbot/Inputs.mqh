@@ -121,6 +121,12 @@ input double             DT_FixedBalance      = 1000.0;             // Banca fix
 input bool               DT_CompoundDaily     = true;               // Usar juros compostos diários
 input bool               DT_CompoundOnTarget  = true;               // Só compor se bateu meta anterior
 
+input group "=== META DIÁRIA - COMPORTAMENTO AUTOMÁTICO ==="
+input bool               DT_CloseOnTarget     = true;               // FECHAR operações ao atingir meta
+input bool               DT_BlockAfterTarget  = true;               // BLOQUEAR novas operações após meta
+input bool               DT_OnlyInTimeWindow  = true;               // Meta só vale dentro do horário
+input double             DT_TargetTolerance   = 0.05;               // Tolerância % (0.05 = fecha com 0.95%)
+
 input group "=== META DIÁRIA - HORÁRIOS ==="
 input int                DT_StartHour         = 9;                  // Hora de início da operação
 input int                DT_StartMinute       = 0;                  // Minuto de início

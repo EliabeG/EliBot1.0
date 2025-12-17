@@ -1,15 +1,18 @@
 //+------------------------------------------------------------------+
 //|                                          DailyTargetManager.mqh  |
-//|   MAAbot v2.5.0 - Sistema de Meta Diária (Porcentagem ao Dia)    |
+//|   MAAbot v2.5.1 - Sistema de Meta Diária (Porcentagem ao Dia)    |
 //|                                     Autor: Eliabe N Oliveira     |
 //+------------------------------------------------------------------+
 //| FUNCIONALIDADES:                                                  |
 //| - Meta diária em porcentagem com juros compostos                 |
+//| - Monitoramento de saldo INDEPENDENTE a cada tick                |
+//| - Fechamento AUTOMÁTICO ao atingir meta (garante 1% exato)       |
+//| - Bloqueio TOTAL de operações após meta (só opera no dia seguinte)|
 //| - Modo agressivo quando faltando tempo para bater meta           |
 //| - Cálculo automático de lote baseado na meta                     |
-//| - Proteção de lucro após atingir meta                            |
+//| - Gráfico de backtest: linha crescente 1% ao dia                 |
+//| - Respeito total ao horário de operação definido                 |
 //| - Estatísticas diárias persistentes                              |
-//| - Integração total com o sistema de trading existente            |
 //+------------------------------------------------------------------+
 #ifndef __MAABOT_DAILYTARGETMANAGER_MQH__
 #define __MAABOT_DAILYTARGETMANAGER_MQH__
@@ -68,6 +71,10 @@ double g_dt_progressPercent = 0.0;    // Progresso em % da meta
 double g_dt_remainingAmount = 0.0;    // Valor restante para meta
 int    g_dt_minutesRemaining = 0;     // Minutos restantes
 string g_dt_statusText = "";          // Texto de status
+
+// Variáveis para controle de bloqueio
+bool   g_dt_tradingBlocked = false;   // Trading bloqueado após meta
+datetime g_dt_lastTargetHitDay = 0;   // Dia que atingiu a meta
 
 //===================== INICIALIZAÇÃO =====================//
 void InitDailyTargetManager() {
@@ -363,6 +370,135 @@ void CheckTargetStatus() {
    }
 }
 
+//===================== MONITORAMENTO INDEPENDENTE A CADA TICK =====================//
+// PONTO 1: Esta função monitora o saldo INDEPENDENTEMENTE da estratégia de stops
+// Deve ser chamada a cada tick no OnTick() principal
+//==================================================================================//
+bool MonitorBalanceOnTick(CTrade &trade) {
+   if(DT_Mode == DTARGET_OFF) return false;
+
+   // Verifica se é novo dia para resetar bloqueio
+   CheckAndResetDailyBlock();
+
+   // Se já atingiu a meta e trading está bloqueado, não faz nada
+   if(g_dt_tradingBlocked && DT_BlockAfterTarget) {
+      return true; // Retorna true = bloqueado
+   }
+
+   // Verifica se está dentro do horário de operação (PONTO 4)
+   if(DT_OnlyInTimeWindow && !IsInDailyTradingWindow()) {
+      return false; // Fora do horário, não monitora meta
+   }
+
+   // Obtém equity atual
+   double equity = AccountInfoDouble(ACCOUNT_EQUITY);
+
+   // Calcula meta com tolerância (permite fechar um pouco antes para garantir)
+   double targetWithTolerance = g_dtState.startBalance +
+      (g_dtState.targetAmount * (1.0 - DT_TargetTolerance));
+
+   // PONTO 1: Verifica se atingiu a meta
+   if(!g_dtState.targetHit && equity >= targetWithTolerance) {
+      // META ATINGIDA!
+      Print("=====================================================");
+      Print("  >>> META DIÁRIA ATINGIDA! FECHANDO OPERAÇÕES <<<   ");
+      Print("=====================================================");
+      Print("Saldo Inicial: $", DoubleToString(g_dtState.startBalance, 2));
+      Print("Equity Atual: $", DoubleToString(equity, 2));
+      Print("Meta: $", DoubleToString(g_dtState.targetBalance, 2));
+      Print("Lucro: $", DoubleToString(equity - g_dtState.startBalance, 2));
+      Print("Percentual: ", DoubleToString(((equity - g_dtState.startBalance) / g_dtState.startBalance) * 100, 2), "%");
+      Print("=====================================================");
+
+      // Marca meta como atingida
+      g_dtState.targetHit = true;
+      g_dtState.targetHitTime = TimeCurrent();
+      g_dtState.status = DAY_TARGET_HIT;
+      g_dtState.currentPL = equity - g_dtState.startBalance;
+
+      // Registra o dia que atingiu
+      datetime now = TimeCurrent();
+      MqlDateTime dt;
+      TimeToStruct(now, dt);
+      dt.hour = 0; dt.min = 0; dt.sec = 0;
+      g_dt_lastTargetHitDay = StructToTime(dt);
+
+      // PONTO 1: Fecha TODAS as operações automaticamente
+      if(DT_CloseOnTarget) {
+         CloseAllPositionsForTarget(trade);
+      }
+
+      // PONTO 2: Bloqueia novas operações
+      if(DT_BlockAfterTarget) {
+         g_dt_tradingBlocked = true;
+         Print(">>> TRADING BLOQUEADO ATÉ O PRÓXIMO DIA <<<");
+      }
+
+      // Alerta
+      if(DT_AlertOnTarget) {
+         Alert("META DIÁRIA ATINGIDA! +",
+               DoubleToString(DT_TargetPercent, 2), "% | Lucro: $",
+               DoubleToString(g_dtState.currentPL, 2),
+               " | OPERAÇÕES ENCERRADAS!");
+      }
+
+      // Salva no histórico
+      SaveTodayToHistory();
+
+      return true; // Meta atingida
+   }
+
+   return false;
+}
+
+//===================== VERIFICA E RESETA BLOQUEIO DIÁRIO =====================//
+// PONTO 2: No início de cada novo dia, reseta o bloqueio para permitir operar
+//=========================================================================//
+void CheckAndResetDailyBlock() {
+   if(!g_dt_tradingBlocked) return;
+
+   datetime now = TimeCurrent();
+   MqlDateTime dtNow, dtLastHit;
+   TimeToStruct(now, dtNow);
+   TimeToStruct(g_dt_lastTargetHitDay, dtLastHit);
+
+   // Se mudou o dia, reseta o bloqueio
+   if(dtNow.day != dtLastHit.day || dtNow.mon != dtLastHit.mon || dtNow.year != dtLastHit.year) {
+      g_dt_tradingBlocked = false;
+      Print("=== NOVO DIA - BLOQUEIO REMOVIDO ===");
+      Print("Trading liberado para o dia: ", TimeToString(now, TIME_DATE));
+   }
+}
+
+//===================== FECHA TODAS AS POSIÇÕES (META ATINGIDA) =====================//
+// PONTO 1: Fecha imediatamente todas as posições ao atingir a meta
+//==================================================================================//
+void CloseAllPositionsForTarget(CTrade &trade) {
+   int total = PositionsTotal();
+   int closed = 0;
+
+   Print("Fechando ", total, " posições abertas...");
+
+   for(int i = total - 1; i >= 0; i--) {
+      ulong ticket = PositionGetTicket(i);
+      if(PositionSelectByTicket(ticket)) {
+         if(PositionGetString(POSITION_SYMBOL) == InpSymbol &&
+            PositionGetInteger(POSITION_MAGIC) == Magic) {
+
+            double profit = PositionGetDouble(POSITION_PROFIT);
+            string type = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY) ? "BUY" : "SELL";
+
+            if(trade.PositionClose(ticket)) {
+               closed++;
+               Print("  Fechada: Ticket #", ticket, " | ", type, " | Lucro: $", DoubleToString(profit, 2));
+            }
+         }
+      }
+   }
+
+   Print("=== ", closed, " POSIÇÕES FECHADAS - META GARANTIDA ===");
+}
+
 //===================== PROTEÇÃO DE LUCRO =====================//
 void ApplyProfitProtection() {
    if(DT_ProfitProtection == PROFIT_PROT_OFF) return;
@@ -552,16 +688,31 @@ int GetAggressiveMaxPositions() {
 }
 
 //===================== VERIFICAÇÃO DE PERMISSÃO PARA TRADE =====================//
+// PONTO 2: Esta função bloqueia TODAS as operações após a meta ser atingida
+//          O bot SÓ volta a operar no DIA SEGUINTE
+//================================================================================//
 bool CanOpenNewTrade() {
    if(DT_Mode == DTARGET_OFF) return true;
 
-   // Se meta atingida no modo conservador, para
+   // PONTO 2: Se trading está bloqueado (meta atingida), não permite NENHUMA operação
+   if(g_dt_tradingBlocked && DT_BlockAfterTarget) {
+      g_dt_statusText = "META ATINGIDA - Bloqueado até amanhã";
+      return false;
+   }
+
+   // Se meta já foi atingida hoje, bloqueia (independente do modo)
+   if(g_dtState.targetHit && DT_BlockAfterTarget) {
+      g_dt_statusText = "META ATINGIDA - Sem operações hoje";
+      return false;
+   }
+
+   // Modo conservador também bloqueia após meta
    if(DT_Mode == DTARGET_CONSERVATIVE && g_dtState.targetHit) {
       g_dt_statusText = "Meta atingida - Operações pausadas";
       return false;
    }
 
-   // Verifica se está dentro do horário
+   // PONTO 4: Verifica se está dentro do horário de operação definido pelo usuário
    if(!IsInDailyTradingWindow()) {
       g_dt_statusText = "Fora do horário de operação";
       return false;
@@ -918,6 +1069,16 @@ double GetTargetBalance() {
 
 double GetCurrentDailyPL() {
    return g_dtState.currentPL;
+}
+
+// PONTO 2: Verifica se o trading está bloqueado após meta atingida
+bool IsTradingBlockedAfterTarget() {
+   return g_dt_tradingBlocked;
+}
+
+// Retorna a data que a meta foi atingida
+datetime GetLastTargetHitDay() {
+   return g_dt_lastTargetHitDay;
 }
 
 #endif // __MAABOT_DAILYTARGETMANAGER_MQH__

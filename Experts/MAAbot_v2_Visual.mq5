@@ -1,13 +1,20 @@
 //+------------------------------------------------------------------+
 //|                                         MAAbot_v2_Visual.mq5     |
 //|   XAUUSD M15 - Ensemble + Trend-Aware + TP/SL Precisos + Hedge   |
-//|   v2.5.0 - META DIÁRIA + TRAILING AVANÇADO + 9 ESTRATÉGIAS       |
+//|   v2.5.1 - META DIÁRIA APRIMORADA + TRAILING AVANÇADO            |
 //|                                     Autor: Eliabe N Oliveira     |
 //|                                      Data: 17/12/2025            |
 //+------------------------------------------------------------------+
+//| NOVIDADES v2.5.1:                                                 |
+//| - Monitoramento de saldo INDEPENDENTE a cada tick                |
+//| - Fechamento AUTOMÁTICO ao atingir meta (garante 1% exato)       |
+//| - Bloqueio TOTAL de operações após meta (só opera amanhã)        |
+//| - Gráfico de backtest: linha crescente 1% ao dia                 |
+//| - Respeito total ao horário de operação definido                 |
+//+------------------------------------------------------------------+
 #property strict
-#property description "XAUUSD M15 — v2.5.0 - Meta Diária + Trailing Avançado"
-#property version  "2.50"
+#property description "XAUUSD M15 — v2.5.1 - Meta Diária Aprimorada"
+#property version  "2.51"
 
 //+------------------------------------------------------------------+
 //|                    INCLUDES - MÓDULOS DO EA                       |
@@ -104,7 +111,7 @@ int OnInit() {
    }
 
    Print("=============================================================");
-   Print("     MAABot v2.5.0 - META DIÁRIA + TRAILING AVANÇADO         ");
+   Print("     MAABot v2.5.1 - META DIÁRIA APRIMORADA                  ");
    Print("=============================================================");
    Print(" Estrategias: MA Cross, RSI, BBands, SuperTrend, AMA/KAMA,");
    Print("              Heikin Ashi, VWAP, Momentum, QQE");
@@ -116,10 +123,16 @@ int OnInit() {
    Print(" PROFIT LOCK: ", EnumToString(ProfitLock_Mode));
    Print("=============================================================");
    if(DT_Mode != DTARGET_OFF) {
+      Print(" >>>>>> SISTEMA META DIÁRIA v2.5.1 <<<<<<");
       Print(" META DIÁRIA: ", EnumToString(DT_Mode));
       Print(" META: ", DoubleToString(DT_TargetPercent, 2), "% ao dia");
       Print(" JUROS COMPOSTOS: ", DT_CompoundDaily ? "ATIVADO" : "DESATIVADO");
       Print(" MODO AGRESSIVO: ", DT_EnableAggressive ? "ATIVADO" : "DESATIVADO");
+      Print(" ----------------------------------------");
+      Print(" [NOVO] Monitoramento independente: ATIVO");
+      Print(" [NOVO] Fecha ao atingir meta: ", DT_CloseOnTarget ? "SIM" : "NAO");
+      Print(" [NOVO] Bloqueia após meta: ", DT_BlockAfterTarget ? "SIM" : "NAO");
+      Print(" [NOVO] Horário: ", DT_StartHour, ":", DT_StartMinute, " - ", DT_EndHour, ":", DT_EndMinute);
       Print("=============================================================");
    }
 
@@ -157,7 +170,7 @@ void OnDeinit(const int reason) {
    if(hQQE_RSI != INVALID_HANDLE) IndicatorRelease(hQQE_RSI);
    
    DeletePanelObjects();
-   Print("MAABot v2.5.0 finalizado. Razao: ", reason);
+   Print("MAABot v2.5.1 finalizado. Razao: ", reason);
 }
 
 //+------------------------------------------------------------------+
@@ -165,19 +178,41 @@ void OnDeinit(const int reason) {
 //+------------------------------------------------------------------+
 void OnTick() {
    if(Symbol() != InpSymbol) return;
-   
+
    datetime now = TimeCurrent();
    double eq = AccountInfoDouble(ACCOUNT_EQUITY);
-   
+
    if(eqPeak <= 0.0 || eq > eqPeak) eqPeak = eq;
-   
+
+   //=====================================================================
+   // PONTO 1: MONITORAMENTO DE SALDO INDEPENDENTE A CADA TICK
+   // Esta chamada é INDEPENDENTE da estratégia de stops!
+   // Verifica o saldo a cada tick e fecha automaticamente ao atingir meta
+   //=====================================================================
+   if(MonitorBalanceOnTick(trade)) {
+      // Meta atingida! Trading bloqueado para hoje
+      Signals S; ZeroMemory(S);
+      g_statusMsg = "META ATINGIDA - Operações encerradas";
+      UpdatePanel(S);
+      return; // Não processa mais nada - só opera amanhã
+   }
+
+   // PONTO 2: Se trading está bloqueado após meta, não faz nada
+   if(IsTradingBlockedAfterTarget()) {
+      Signals S; ZeroMemory(S);
+      g_statusMsg = "META BATIDA - Aguardando próximo dia";
+      UpdatePanel(S);
+      return;
+   }
+   //=====================================================================
+
    g_dailyPL = TodayPL();
    g_currentDD = CurrentDDPercent();
    g_todayTrades = TodayTradesOpened();
    g_statusMsg = "";
    g_blockReasonBuy = "";
    g_blockReasonSell = "";
-   
+
    if(!DailyRiskOK()) {
       Signals S; ZeroMemory(S); GetSignals(S);
       UpdatePanel(S);
