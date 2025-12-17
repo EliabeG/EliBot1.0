@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                            TradeManagement.mqh   |
-//|   MAAbot v2.3.1 - Gestão de Trades                               |
+//|   MAAbot v2.5.0 - Gestão de Trades                               |
 //|                                     Autor: Eliabe N Oliveira     |
 //+------------------------------------------------------------------+
 #ifndef __MAABOT_TRADEMANAGEMENT_MQH__
@@ -11,6 +11,7 @@
 #include "Globals.mqh"
 #include "Utils.mqh"
 #include "TrailingStop.mqh"
+#include "DailyTargetManager.mqh"
 
 //-------------------------- SL/TP STRUCTURE --------------------------------//
 int SLPoints_Structure(int dir, int lookback) {
@@ -91,11 +92,19 @@ void CalcStopsTP_Regime(int dir, bool trending, int &sl_pts_out, int &tp_pts_out
 void ManagePerTrade(CTrade &trade) {
    if(MG_Mode == MG_GRID) return;
 
+   // ======== META DIÁRIA (PORCENTAGEM AO DIA) ========
+   // Gerencia o sistema de meta diária com juros compostos
+   ManageDailyTarget();
+
    // ======== TRAILING STOP AVANÇADO ========
    // Se o modo avançado estiver ativo, usa o novo sistema
    if(AdvTrail_Mode != TRAIL_OFF) {
       ManageAdvancedTrailingStop(trade);
    }
+
+   // ======== VERIFICAÇÃO DE FIM DO DIA ========
+   // Executa ação configurada ao fim do horário
+   ExecuteEndOfDayAction(trade);
 
    int total = PositionsTotal();
    for(int i = 0; i < total; i++) {

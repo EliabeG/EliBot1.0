@@ -1,13 +1,13 @@
 //+------------------------------------------------------------------+
 //|                                         MAAbot_v2_Visual.mq5     |
 //|   XAUUSD M15 - Ensemble + Trend-Aware + TP/SL Precisos + Hedge   |
-//|   v2.4.0 - TRAILING STOP AVANÇADO + 9 ESTRATÉGIAS                |
+//|   v2.5.0 - META DIÁRIA + TRAILING AVANÇADO + 9 ESTRATÉGIAS       |
 //|                                     Autor: Eliabe N Oliveira     |
-//|                                      Data: 10/12/2025            |
+//|                                      Data: 17/12/2025            |
 //+------------------------------------------------------------------+
 #property strict
-#property description "XAUUSD M15 — v2.4.0 - Trailing Stop Avançado"
-#property version  "2.40"
+#property description "XAUUSD M15 — v2.5.0 - Meta Diária + Trailing Avançado"
+#property version  "2.50"
 
 //+------------------------------------------------------------------+
 //|                    INCLUDES - MÓDULOS DO EA                       |
@@ -95,13 +95,16 @@ int OnInit() {
    // Inicializar indicadores do Trailing Stop Avançado
    InitTrailingIndicators();
 
+   // Inicializar sistema de Meta Diária (Porcentagem ao Dia)
+   InitDailyTargetManager();
+
    if(ShowPanel) {
       Signals S; ZeroMemory(S);
       UpdatePanel(S);
    }
 
    Print("=============================================================");
-   Print("     MAABot v2.4.0 - TRAILING STOP AVANÇADO                  ");
+   Print("     MAABot v2.5.0 - META DIÁRIA + TRAILING AVANÇADO         ");
    Print("=============================================================");
    Print(" Estrategias: MA Cross, RSI, BBands, SuperTrend, AMA/KAMA,");
    Print("              Heikin Ashi, VWAP, Momentum, QQE");
@@ -112,6 +115,13 @@ int OnInit() {
    Print(" TRAILING STOP: ", EnumToString(AdvTrail_Mode));
    Print(" PROFIT LOCK: ", EnumToString(ProfitLock_Mode));
    Print("=============================================================");
+   if(DT_Mode != DTARGET_OFF) {
+      Print(" META DIÁRIA: ", EnumToString(DT_Mode));
+      Print(" META: ", DoubleToString(DT_TargetPercent, 2), "% ao dia");
+      Print(" JUROS COMPOSTOS: ", DT_CompoundDaily ? "ATIVADO" : "DESATIVADO");
+      Print(" MODO AGRESSIVO: ", DT_EnableAggressive ? "ATIVADO" : "DESATIVADO");
+      Print("=============================================================");
+   }
 
    return INIT_SUCCEEDED;
 }
@@ -120,6 +130,9 @@ int OnInit() {
 //|                           OnDeinit                               |
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason) {
+   // Finalizar sistema de Meta Diária
+   DeinitDailyTargetManager();
+
    // Liberar indicadores do Trailing Stop Avançado
    DeinitTrailingIndicators();
 
@@ -144,7 +157,7 @@ void OnDeinit(const int reason) {
    if(hQQE_RSI != INVALID_HANDLE) IndicatorRelease(hQQE_RSI);
    
    DeletePanelObjects();
-   Print("MAABot v2.4.0 finalizado. Razao: ", reason);
+   Print("MAABot v2.5.0 finalizado. Razao: ", reason);
 }
 
 //+------------------------------------------------------------------+
@@ -235,47 +248,78 @@ void OnTick() {
    }
    
    if(isTradingHours) {
-      bool wantBuy = AllowLong && (g_signalsAgreeL >= MinAgreeSignals) && (pL >= thrL);
-      bool wantSell = AllowShort && (g_signalsAgreeS >= MinAgreeSignals) && (pS >= thrS);
-      
-      if(UseStructureLock) {
+      // ======== INTEGRAÇÃO META DIÁRIA (PORCENTAGEM AO DIA) ========
+      // Verifica se pode abrir novo trade baseado na meta diária
+      bool canOpenDT = CanOpenNewTrade();
+
+      // Ajusta thresholds se em modo agressivo
+      double thrL_adj = thrL;
+      double thrS_adj = thrS;
+      int minSignals_adj = MinAgreeSignals;
+      bool ignoreFilters = false;
+
+      if(IsAggressiveModeActive()) {
+         double aggMult = GetAggressiveThresholdMultiplier();
+         thrL_adj = thrL * aggMult;
+         thrS_adj = thrS * aggMult;
+         minSignals_adj = GetAggressiveMinSignals();
+         ignoreFilters = ShouldIgnoreFilters();
+
+         // Atualiza status no painel
+         g_statusMsg = GetDailyStatusText();
+      }
+
+      // Usa os valores ajustados para decisão
+      bool wantBuy = AllowLong && (g_signalsAgreeL >= minSignals_adj) && (pL >= thrL_adj);
+      bool wantSell = AllowShort && (g_signalsAgreeS >= minSignals_adj) && (pS >= thrS_adj);
+
+      // Structure lock (pode ser ignorado no modo agressivo)
+      if(UseStructureLock && !ignoreFilters) {
          wantBuy = wantBuy && StructureOK(S, +1);
          wantSell = wantSell && StructureOK(S, -1);
       }
-      
-      if(!wantBuy && AllowLong) {
-         if(g_signalsAgreeL < MinAgreeSignals) g_blockReasonBuy = StringFormat("Sinais %d < %d", g_signalsAgreeL, MinAgreeSignals);
-         else if(pL < thrL) g_blockReasonBuy = StringFormat("Prob %.0f%% < %.0f%%", pL*100, thrL*100);
-         else if(UseStructureLock && !StructureOK(S, +1)) g_blockReasonBuy = "StructureLock";
+
+      // Bloqueia se meta diária não permite
+      if(!canOpenDT) {
+         wantBuy = false;
+         wantSell = false;
+         if(g_blockReasonBuy == "") g_blockReasonBuy = GetDailyStatusText();
+         if(g_blockReasonSell == "") g_blockReasonSell = GetDailyStatusText();
       }
-      
-      if(!wantSell && AllowShort) {
-         if(g_signalsAgreeS < MinAgreeSignals) g_blockReasonSell = StringFormat("Sinais %d < %d", g_signalsAgreeS, MinAgreeSignals);
-         else if(pS < thrS) g_blockReasonSell = StringFormat("Prob %.0f%% < %.0f%%", pS*100, thrS*100);
-         else if(UseStructureLock && !StructureOK(S, -1)) g_blockReasonSell = "StructureLock";
+
+      if(!wantBuy && AllowLong && canOpenDT) {
+         if(g_signalsAgreeL < minSignals_adj) g_blockReasonBuy = StringFormat("Sinais %d < %d", g_signalsAgreeL, minSignals_adj);
+         else if(pL < thrL_adj) g_blockReasonBuy = StringFormat("Prob %.0f%% < %.0f%%", pL*100, thrL_adj*100);
+         else if(UseStructureLock && !ignoreFilters && !StructureOK(S, +1)) g_blockReasonBuy = "StructureLock";
       }
-      
-      if(Hedge_Enable && Hedge_AllowDoubleStart) { 
-         if(wantBuy && !HasBasket(+1)) TryOpen(+1, S, pL, thrL, now, trade); 
-         if(wantSell && !HasBasket(-1)) TryOpen(-1, S, pS, thrS, now, trade); 
+
+      if(!wantSell && AllowShort && canOpenDT) {
+         if(g_signalsAgreeS < minSignals_adj) g_blockReasonSell = StringFormat("Sinais %d < %d", g_signalsAgreeS, minSignals_adj);
+         else if(pS < thrS_adj) g_blockReasonSell = StringFormat("Prob %.0f%% < %.0f%%", pS*100, thrS_adj*100);
+         else if(UseStructureLock && !ignoreFilters && !StructureOK(S, -1)) g_blockReasonSell = "StructureLock";
+      }
+
+      if(Hedge_Enable && Hedge_AllowDoubleStart) {
+         if(wantBuy && !HasBasket(+1)) TryOpen(+1, S, pL, thrL_adj, now, trade);
+         if(wantSell && !HasBasket(-1)) TryOpen(-1, S, pS, thrS_adj, now, trade);
       }
       else {
          if(wantBuy && wantSell) {
-            if(pL >= pS && !HasBasket(+1)) TryOpen(+1, S, pL, thrL, now, trade);
-            else if(pS > pL && !HasBasket(-1)) TryOpen(-1, S, pS, thrS, now, trade);
+            if(pL >= pS && !HasBasket(+1)) TryOpen(+1, S, pL, thrL_adj, now, trade);
+            else if(pS > pL && !HasBasket(-1)) TryOpen(-1, S, pS, thrS_adj, now, trade);
          }
-         else if(wantBuy && !HasBasket(+1)) TryOpen(+1, S, pL, thrL, now, trade);
-         else if(wantSell && !HasBasket(-1)) TryOpen(-1, S, pS, thrS, now, trade);
+         else if(wantBuy && !HasBasket(+1)) TryOpen(+1, S, pL, thrL_adj, now, trade);
+         else if(wantSell && !HasBasket(-1)) TryOpen(-1, S, pS, thrS_adj, now, trade);
       }
-      
+
       if(Hedge_Enable) {
-         if(Hedge_OpenOnOppSignal) { 
-            if(HasBasket(+1) && wantSell && !HasBasket(-1)) TryOpen(-1, S, pS, thrS, now, trade); 
-            if(HasBasket(-1) && wantBuy && !HasBasket(+1)) TryOpen(+1, S, pL, thrL, now, trade); 
+         if(Hedge_OpenOnOppSignal) {
+            if(HasBasket(+1) && wantSell && !HasBasket(-1)) TryOpen(-1, S, pS, thrS_adj, now, trade);
+            if(HasBasket(-1) && wantBuy && !HasBasket(+1)) TryOpen(+1, S, pL, thrL_adj, now, trade);
          }
-         if(Hedge_OpenOnAdverse) { 
+         if(Hedge_OpenOnAdverse) {
             if(HasBasket(+1) && !HasBasket(-1) && AdverseTrigger(+1)) TryOpen(-1, S, 1.0, 0.0, now, trade);
-            if(HasBasket(-1) && !HasBasket(+1) && AdverseTrigger(-1)) TryOpen(+1, S, 1.0, 0.0, now, trade); 
+            if(HasBasket(-1) && !HasBasket(+1) && AdverseTrigger(-1)) TryOpen(+1, S, 1.0, 0.0, now, trade);
          }
       }
    }

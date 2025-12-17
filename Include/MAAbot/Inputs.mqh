@@ -109,6 +109,54 @@ input bool     Hybrid_UseMomentum    = true;            // Usar momentum para aj
 input int      Hybrid_MomPeriod      = 10;              // Período do momentum
 input double   Hybrid_MomThreshold   = 0.001;           // Threshold do momentum
 
+//==================== PORCENTAGEM AO DIA (DAILY TARGET) ====================//
+// Sistema de meta diária com juros compostos e modo agressivo
+//============================================================================//
+
+input group "=== META DIÁRIA - CONFIGURAÇÃO PRINCIPAL ==="
+input DailyTargetMode    DT_Mode              = DTARGET_AGGRESSIVE; // Modo da Meta Diária
+input double             DT_TargetPercent     = 1.0;                // Meta diária em % (ex: 1.0 = 1%)
+input BalanceBaseMode    DT_BalanceBase       = BALANCE_START_DAY;  // Base para cálculo da banca
+input double             DT_FixedBalance      = 1000.0;             // Banca fixa (se BALANCE_FIXED)
+input bool               DT_CompoundDaily     = true;               // Usar juros compostos diários
+input bool               DT_CompoundOnTarget  = true;               // Só compor se bateu meta anterior
+
+input group "=== META DIÁRIA - HORÁRIOS ==="
+input int                DT_StartHour         = 9;                  // Hora de início da operação
+input int                DT_StartMinute       = 0;                  // Minuto de início
+input int                DT_EndHour           = 17;                 // Hora de fim da operação
+input int                DT_EndMinute         = 30;                 // Minuto de fim
+input int                DT_AggressiveMinutes = 60;                 // Minutos antes do fim para modo agressivo
+input EndOfDayBehavior   DT_EndOfDayAction    = EOD_AGGRESSIVE_PUSH;// Ação ao final do dia
+
+input group "=== META DIÁRIA - MODO AGRESSIVO ==="
+input bool               DT_EnableAggressive  = true;               // Ativar modo agressivo
+input AggressiveLevel    DT_MaxAggressiveLevel= AGG_LEVEL_5;        // Nível máximo de agressividade
+input double             DT_AggLotMultiplier  = 2.0;                // Multiplicador de lote por nível
+input double             DT_AggThresholdReduce= 0.10;               // Redução de threshold por nível
+input bool               DT_AggIgnoreFilters  = true;               // Ignorar filtros no nível máximo
+input bool               DT_AggAllowAllIn     = true;               // Permitir all-in se necessário
+input int                DT_AggMaxPositions   = 10;                 // Máximo de posições simultâneas
+input double             DT_AggMaxRiskPercent = 100.0;              // Risco máximo % (100 = toda banca)
+
+input group "=== META DIÁRIA - PROTEÇÃO DE LUCRO ==="
+input DailyProfitProtection DT_ProfitProtection = PROFIT_PROT_OFF; // Proteção após meta
+input double             DT_LockProfitPercent = 50.0;               // % do lucro a proteger
+input double             DT_TrailProfitStep   = 0.25;               // Step do trailing de lucro em %
+input bool               DT_StopOnExtraProfit = false;              // Parar se lucro extra > meta
+
+input group "=== META DIÁRIA - CONTROLE DE PERDA ==="
+input double             DT_MaxDailyLoss      = 50.0;               // Perda máxima diária em % (50 = metade)
+input bool               DT_StopOnMaxLoss     = false;              // Parar se atingir perda máxima
+input bool               DT_RecoverOnAggressive = true;             // Tentar recuperar no modo agressivo
+input double             DT_RecoveryMultiplier= 1.5;                // Multiplicador para recuperação
+
+input group "=== META DIÁRIA - ESTATÍSTICAS ==="
+input bool               DT_SaveDailyStats    = true;               // Salvar estatísticas diárias
+input bool               DT_ShowDailyPanel    = true;               // Mostrar painel de meta diária
+input bool               DT_AlertOnTarget     = true;               // Alertar ao atingir meta
+input bool               DT_AlertOnAggressive = true;               // Alertar ao entrar em modo agressivo
+
 //============================= LIMITES & DD GUARD ===========================//
 input group "=== LIMITES E PROTEÇÃO ==="
 input double   DailyLossLimitPercent = 3.0;

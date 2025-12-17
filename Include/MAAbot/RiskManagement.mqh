@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                            RiskManagement.mqh    |
-//|   MAAbot v2.3.1 - Gestão de Risco                                |
+//|   MAAbot v2.5.0 - Gestão de Risco                                |
 //|                                     Autor: Eliabe N Oliveira     |
 //+------------------------------------------------------------------+
 #ifndef __MAABOT_RISKMANAGEMENT_MQH__
@@ -9,6 +9,10 @@
 #include "Inputs.mqh"
 #include "Globals.mqh"
 #include "Utils.mqh"
+
+// Forward declaration para evitar dependência circular
+double CalculateAggressiveLot(double baseLot);
+bool IsAggressiveModeActive();
 
 //-------------------------- HISTÓRICO / RISCO ------------------------------//
 double TodayPL() { 
@@ -65,24 +69,32 @@ bool DailyRiskOK() {
 }
 
 double LotsForRiskPercent(double percent, int sl_points) {
-   double eq = AccountInfoDouble(ACCOUNT_EQUITY); 
+   double eq = AccountInfoDouble(ACCOUNT_EQUITY);
    double risk_money = eq * (percent / 100.0);
    double pt = Pt(), tick_size = SymbolInfoDouble(InpSymbol, SYMBOL_TRADE_TICK_SIZE);
    double tick_value = SymbolInfoDouble(InpSymbol, SYMBOL_TRADE_TICK_VALUE);
    double step = SymbolInfoDouble(InpSymbol, SYMBOL_VOLUME_STEP);
    double minlot = SymbolInfoDouble(InpSymbol, SYMBOL_VOLUME_MIN);
    double maxlot = SymbolInfoDouble(InpSymbol, SYMBOL_VOLUME_MAX);
-   
+
    if(tick_size <= 0.0 || tick_value <= 0.0 || pt <= 0.0) return minlot;
-   
+
    double money_per_lot = (sl_points * pt) * (tick_value / tick_size);
    if(money_per_lot <= 0.0) return minlot;
-   
-   double lots = risk_money / money_per_lot; 
-   int k = (int)MathFloor(lots / step); 
-   lots = k * step; 
-   
-   return MathMax(minlot, MathMin(maxlot, lots)); 
+
+   double lots = risk_money / money_per_lot;
+   int k = (int)MathFloor(lots / step);
+   lots = k * step;
+
+   double baseLot = MathMax(minlot, MathMin(maxlot, lots));
+
+   // ======== INTEGRAÇÃO META DIÁRIA ========
+   // Aplica multiplicador do modo agressivo se ativo
+   if(DT_Mode != DTARGET_OFF && IsAggressiveModeActive()) {
+      baseLot = CalculateAggressiveLot(baseLot);
+   }
+
+   return baseLot;
 }
 
 //-------------------------- DD GUARD / THROTTLE ----------------------------//
