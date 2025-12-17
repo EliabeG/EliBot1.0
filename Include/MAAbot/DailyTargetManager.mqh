@@ -462,20 +462,56 @@ bool MonitorBalanceOnTick(CTrade &trade) {
 
 //===================== VERIFICA E RESETA BLOQUEIO DIÁRIO =====================//
 // PONTO 2: No início de cada novo dia, reseta o bloqueio para permitir operar
+// CORRIGIDO: Agora também reseta TODO o estado do dia para novo trading
 //=========================================================================//
 void CheckAndResetDailyBlock() {
-   if(!g_dt_tradingBlocked) return;
-
    datetime now = TimeCurrent();
-   MqlDateTime dtNow, dtLastHit;
+   MqlDateTime dtNow, dtState;
    TimeToStruct(now, dtNow);
-   TimeToStruct(g_dt_lastTargetHitDay, dtLastHit);
+   TimeToStruct(g_dtState.dayStart, dtState);
 
-   // Se mudou o dia, reseta o bloqueio
-   if(dtNow.day != dtLastHit.day || dtNow.mon != dtLastHit.mon || dtNow.year != dtLastHit.year) {
+   // Verifica se mudou o dia (comparando com dayStart do estado atual)
+   bool isNewDay = (dtNow.day != dtState.day || dtNow.mon != dtState.mon || dtNow.year != dtState.year);
+
+   // Se é um novo dia, SEMPRE reseta tudo (mesmo que não esteja bloqueado)
+   if(isNewDay && g_dtState.dayStart > 0) {
+      Print("=====================================================");
+      Print("  >>> NOVO DIA DE TRADING DETECTADO <<<              ");
+      Print("=====================================================");
+      Print("Dia anterior: ", TimeToString(g_dtState.dayStart, TIME_DATE));
+      Print("Novo dia: ", TimeToString(now, TIME_DATE));
+
+      // Salva estatísticas do dia anterior (se teve trades)
+      if(g_dtState.tradesOpened > 0 || g_dtState.targetHit) {
+         SaveTodayToHistory();
+      }
+
+      // Remove bloqueio
       g_dt_tradingBlocked = false;
-      Print("=== NOVO DIA - BLOQUEIO REMOVIDO ===");
-      Print("Trading liberado para o dia: ", TimeToString(now, TIME_DATE));
+      g_dt_forceMode = false;
+
+      // IMPORTANTE: Guarda o saldo final do dia anterior para juros compostos
+      double previousEndBalance = AccountInfoDouble(ACCOUNT_BALANCE);
+
+      // Reseta TODO o estado do dia
+      ResetDailyState();
+
+      // Aplica juros compostos se configurado
+      if(DT_CompoundDaily) {
+         // Usa o saldo final do dia anterior como base
+         g_dtState.startBalance = previousEndBalance;
+         g_dtState.targetAmount = g_dtState.startBalance * (DT_TargetPercent / 100.0);
+         g_dtState.targetBalance = g_dtState.startBalance + g_dtState.targetAmount;
+
+         Print(">>> JUROS COMPOSTOS APLICADOS <<<");
+         Print("Nova Base: $", DoubleToString(g_dtState.startBalance, 2));
+         Print("Nova Meta: $", DoubleToString(g_dtState.targetAmount, 2), " (",
+               DoubleToString(DT_TargetPercent, 2), "%)");
+         Print("Saldo Alvo: $", DoubleToString(g_dtState.targetBalance, 2));
+      }
+
+      Print(">>> TRADING LIBERADO PARA O NOVO DIA <<<");
+      Print("=====================================================");
    }
 }
 
