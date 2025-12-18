@@ -99,7 +99,7 @@ void InitDailyTargetManager() {
    // Carrega histórico se disponível
    LoadDailyHistory();
 
-   Print("=== DAILY TARGET MANAGER INICIADO ===");
+   Print("=== GERENCIADOR DE META DIÁRIA INICIADO ===");
    Print("Meta Diária: ", DoubleToString(DT_TargetPercent, 2), "%");
    Print("Saldo Base: ", DoubleToString(g_dtState.startBalance, 2));
    Print("Meta em $: ", DoubleToString(g_dtState.targetAmount, 2));
@@ -119,7 +119,7 @@ void DeinitDailyTargetManager() {
    // Salva histórico
    SaveDailyHistory();
 
-   Print("=== DAILY TARGET MANAGER FINALIZADO ===");
+   Print("=== GERENCIADOR DE META DIÁRIA FINALIZADO ===");
    PrintDailySummary();
 }
 
@@ -531,11 +531,11 @@ void CloseAllPositionsForTarget(CTrade &trade) {
             PositionGetInteger(POSITION_MAGIC) == Magic) {
 
             double profit = PositionGetDouble(POSITION_PROFIT);
-            string type = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY) ? "BUY" : "SELL";
+            string type = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY) ? "COMPRA" : "VENDA";
 
             if(trade.PositionClose(ticket)) {
                closed++;
-               Print("  Fechada: Ticket #", ticket, " | ", type, " | Lucro: $", DoubleToString(profit, 2));
+               Print("  Fechada: Ordem #", ticket, " | ", type, " | Lucro: $", DoubleToString(profit, 2));
             }
          }
       }
@@ -1105,7 +1105,7 @@ void PrintDailySummary() {
    Print("Resultado: $", DoubleToString(g_dtState.currentPL, 2), " (",
          DoubleToString((g_dtState.currentPL / g_dtState.startBalance) * 100, 2), "%)");
    Print("Meta Atingida: ", g_dtState.targetHit ? "SIM" : "NÃO");
-   Print("Trades: ", g_dtState.tradesClosed, " (W:", g_dtState.tradesWon, " L:", g_dtState.tradesLost, ")");
+   Print("Trades: ", g_dtState.tradesClosed, " (Ganhos:", g_dtState.tradesWon, " Perdas:", g_dtState.tradesLost, ")");
    Print("Maior Lucro: $", DoubleToString(g_dtState.highestPL, 2));
    Print("Maior Perda: $", DoubleToString(g_dtState.lowestPL, 2));
    Print("Modo Agressivo: ", g_dtState.aggressiveMode ? "Usado" : "Não usado");
@@ -1161,7 +1161,7 @@ void LoadDailyHistory() {
    }
 
    FileClose(handle);
-   Print("Histórico carregado: ", g_dtHistoryCount, " dias");
+   Print("Histórico carregado: ", g_dtHistoryCount, " dia(s)");
 }
 
 void SaveDailyHistory() {
