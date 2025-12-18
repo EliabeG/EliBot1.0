@@ -206,8 +206,11 @@ input int      ATR_Period            = 14;                     // Período do AT
 
 //╔══════════════════════════════════════════════════════════════════╗
 //║                    TRAILING STOP                                 ║
+//╠══════════════════════════════════════════════════════════════════╣
+//║  Desative Enable_TrailingStop para usar apenas SL/TP fixos       ║
 //╚══════════════════════════════════════════════════════════════════╝
-input group "══════ TRAILING STOP - MODO PRINCIPAL ══════"
+input group "══════ TRAILING STOP - CONTROLE MESTRE ══════"
+input bool     Enable_TrailingStop   = true;                   // ████ [ATIVAR] TRAILING STOP ████
 input TrailingMode AdvTrail_Mode     = TRAIL_HYBRID;           // Modo de Trailing
 input ProfitLockMode ProfitLock_Mode = LOCK_SCALED;            // Modo de Travamento
 input bool     UseATRTrailing        = true;                   // Usar Trailing ATR
@@ -260,9 +263,12 @@ input double   Hybrid_MomThreshold   = 0.001;                  // Limiar momentu
 
 //╔══════════════════════════════════════════════════════════════════╗
 //║                    META DIÁRIA                                   ║
+//╠══════════════════════════════════════════════════════════════════╣
+//║  Desative Enable_DailyTarget para desabilitar toda a meta diária ║
 //╚══════════════════════════════════════════════════════════════════╝
-input group "══════ META DIÁRIA - PRINCIPAL ══════"
-input DailyTargetMode    DT_Mode              = DTARGET_AGGRESSIVE; // Modo da Meta
+input group "══════ META DIÁRIA - CONTROLE MESTRE ══════"
+input bool               Enable_DailyTarget   = true;                 // ████ [ATIVAR] META DIÁRIA ████
+input DailyTargetMode    DT_Mode              = DTARGET_AGGRESSIVE;   // Modo da Meta
 input double             DT_TargetPercent     = 1.0;                // Meta diária (%)
 input BalanceBaseMode    DT_BalanceBase       = BALANCE_START_DAY;  // Base do saldo
 input double             DT_FixedBalance      = 1000.0;             // Saldo fixo
@@ -464,6 +470,32 @@ int GetEffectiveMinSignals() {
    int active = CountActiveIndicators();
    if(active == 0) return 1;
    return MathMin(MinAgreeSignals, active);
+}
+
+//╔══════════════════════════════════════════════════════════════════╗
+//║         FUNÇÕES AUXILIARES - MÓDULOS (TRAILING/META DIÁRIA)      ║
+//╚══════════════════════════════════════════════════════════════════╝
+
+// Verifica se o Trailing Stop está ativo
+bool IsTrailingStopEnabled() {
+   return Enable_TrailingStop;
+}
+
+// Verifica se a Meta Diária está ativa
+bool IsDailyTargetEnabled() {
+   return Enable_DailyTarget && (DT_Mode != DTARGET_OFF);
+}
+
+// Retorna o modo de trailing efetivo (OFF se desativado)
+TrailingMode GetEffectiveTrailingMode() {
+   if(!Enable_TrailingStop) return TRAIL_OFF;
+   return AdvTrail_Mode;
+}
+
+// Retorna o modo de meta diária efetivo (OFF se desativado)
+DailyTargetMode GetEffectiveDailyTargetMode() {
+   if(!Enable_DailyTarget) return DTARGET_OFF;
+   return DT_Mode;
 }
 
 #endif // __MAABOT_INPUTS_MQH__

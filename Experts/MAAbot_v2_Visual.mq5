@@ -124,27 +124,32 @@ int OnInit() {
    Print(" Indicadores ATIVOS: ", CountActiveIndicators(), "/9");
    Print(" MinSinais Config=", MinAgreeSignals, " | Efetivo=", GetEffectiveMinSignals(), " | Mode=", EnumToString(PrecisionMode));
    Print("=============================================================");
-   Print(" TRAILING STOP: ", EnumToString(AdvTrail_Mode));
-   Print(" PROFIT LOCK: ", EnumToString(ProfitLock_Mode));
-   Print("=============================================================");
-   if(DT_Mode != DTARGET_OFF) {
-      Print(" >>>>>> SISTEMA META DIÁRIA v2.5.2 <<<<<<");
-      Print(" META DIÁRIA: ", EnumToString(DT_Mode));
-      Print(" META: ", DoubleToString(DT_TargetPercent, 2), "% ao dia");
-      Print(" JUROS COMPOSTOS: ", DT_CompoundDaily ? "ATIVADO" : "DESATIVADO");
-      Print(" MODO AGRESSIVO: ", DT_EnableAggressive ? "ATIVADO" : "DESATIVADO");
-      Print(" ----------------------------------------");
-      Print(" [v2.5.1] Monitoramento independente: ATIVO");
-      Print(" [v2.5.1] Fecha ao atingir meta: ", DT_CloseOnTarget ? "SIM" : "NAO");
-      Print(" [v2.5.1] Bloqueia após meta: ", DT_BlockAfterTarget ? "SIM" : "NAO");
-      Print(" ----------------------------------------");
-      Print(" [v2.5.2] OPERAÇÃO OBRIGATÓRIA: ", DT_ForceDailyTrade ? "ATIVADO" : "DESATIVADO");
-      Print(" [v2.5.2] Forçar após: ", DT_ForceAfterMinutes, " min sem trade");
-      Print(" [v2.5.2] Threshold mínimo: ", DT_ForceMinThreshold * 100, "%");
-      Print(" [v2.5.2] Sinais mínimos: ", DT_ForceMinSignals);
-      Print(" [v2.5.2] Horário: ", DT_StartHour, ":", DT_StartMinute, " - ", DT_EndHour, ":", DT_EndMinute);
-      Print("=============================================================");
+
+   // TRAILING STOP - STATUS
+   if(IsTrailingStopEnabled()) {
+      Print(" ████ TRAILING STOP: ATIVADO ████");
+      Print(" Modo: ", EnumToString(GetEffectiveTrailingMode()));
+      Print(" Profit Lock: ", EnumToString(ProfitLock_Mode));
+   } else {
+      Print(" ████ TRAILING STOP: DESATIVADO ████");
+      Print(" (Usando apenas SL/TP fixos)");
    }
+   Print("=============================================================");
+
+   // META DIÁRIA - STATUS
+   if(IsDailyTargetEnabled()) {
+      Print(" ████ META DIÁRIA: ATIVADO ████");
+      Print(" Modo: ", EnumToString(GetEffectiveDailyTargetMode()));
+      Print(" Meta: ", DoubleToString(DT_TargetPercent, 2), "% ao dia");
+      Print(" Juros Compostos: ", DT_CompoundDaily ? "SIM" : "NAO");
+      Print(" Modo Agressivo: ", DT_EnableAggressive ? "SIM" : "NAO");
+      Print(" Operação Forçada: ", DT_ForceDailyTrade ? "SIM" : "NAO");
+      Print(" Horário: ", DT_StartHour, ":", DT_StartMinute, " - ", DT_EndHour, ":", DT_EndMinute);
+   } else {
+      Print(" ████ META DIÁRIA: DESATIVADO ████");
+      Print(" (Operando sem restrições de meta)");
+   }
+   Print("=============================================================");
 
    return INIT_SUCCEEDED;
 }
