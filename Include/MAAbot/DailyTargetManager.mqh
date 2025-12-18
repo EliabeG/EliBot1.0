@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                          DailyTargetManager.mqh  |
-//|   MAAbot v2.5.1 - Sistema de Meta Diária (Porcentagem ao Dia)    |
+//|   MAAbot v2.6.0 - Sistema de Meta Diária (Porcentagem ao Dia)    |
 //|                                     Autor: Eliabe N Oliveira     |
 //+------------------------------------------------------------------+
 //| FUNCIONALIDADES:                                                  |
