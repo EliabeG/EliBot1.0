@@ -58,7 +58,7 @@ void CreateProgressBar(string name, int x, int y, int width, int height, double 
 string TrendToString(int dir) { if(dir > 0) return "ALTA"; if(dir < 0) return "BAIXA"; return "NEUTRO"; }
 color TrendToColor(int dir) { if(dir > 0) return PanelBuyColor; if(dir < 0) return PanelSellColor; return PanelNeutralColor; }
 string SignalToIcon(int sig) { if(sig > 0) return "^"; if(sig < 0) return "v"; return "-"; }
-string SignalToText(int sig) { if(sig > 0) return "BUY"; if(sig < 0) return "SELL"; return "---"; }
+string SignalToText(int sig) { if(sig > 0) return "COMPRA"; if(sig < 0) return "VENDA"; return "---"; }
 color SignalToColor(int sig) { if(sig > 0) return PanelBuyColor; if(sig < 0) return PanelSellColor; return PanelNeutralColor; }
 
 void UpdatePanel(const Signals &S) {
@@ -176,7 +176,7 @@ void UpdatePanel(const Signals &S) {
    CreatePanelLabel("S4_Sig", tCol2, y + lineH * row, SignalToIcon(S.st), SignalToColor(S.st));
    CreatePanelLabel("S4_Status", tCol3, y + lineH * row, SignalToText(S.st), SignalToColor(S.st));
    CreatePanelLabel("S4_Weight", tCol4, y + lineH * row, DoubleToString(W_Supertrend, 1), C'180,180,180');
-   CreatePanelLabel("S4_Detail", tCol5, y + lineH * row, (S.st > 0) ? "Bull" : (S.st < 0) ? "Bear" : "---", C'150,150,150');
+   CreatePanelLabel("S4_Detail", tCol5, y + lineH * row, (S.st > 0) ? "Alta" : (S.st < 0) ? "Baixa" : "---", C'150,150,150');
    row++;
    
    // 5. AMA/KAMA
@@ -184,7 +184,7 @@ void UpdatePanel(const Signals &S) {
    CreatePanelLabel("S5_Sig", tCol2, y + lineH * row, SignalToIcon(S.ama), SignalToColor(S.ama));
    CreatePanelLabel("S5_Status", tCol3, y + lineH * row, SignalToText(S.ama), SignalToColor(S.ama));
    CreatePanelLabel("S5_Weight", tCol4, y + lineH * row, DoubleToString(W_AMA, 1), C'180,180,180');
-   string kamaDir = (g_kamaSlope > 0) ? "Up" : (g_kamaSlope < 0) ? "Down" : "Flat";
+   string kamaDir = (g_kamaSlope > 0) ? "Subindo" : (g_kamaSlope < 0) ? "Caindo" : "Lateral";
    CreatePanelLabel("S5_Detail", tCol5, y + lineH * row, kamaDir, C'150,150,150');
    row++;
    
@@ -193,7 +193,7 @@ void UpdatePanel(const Signals &S) {
    CreatePanelLabel("S6_Sig", tCol2, y + lineH * row, SignalToIcon(S.ha), SignalToColor(S.ha));
    CreatePanelLabel("S6_Status", tCol3, y + lineH * row, SignalToText(S.ha), SignalToColor(S.ha));
    CreatePanelLabel("S6_Weight", tCol4, y + lineH * row, DoubleToString(W_Heikin, 1), C'180,180,180');
-   CreatePanelLabel("S6_Detail", tCol5, y + lineH * row, (S.ha > 0) ? "Bull" : (S.ha < 0) ? "Bear" : "---", C'150,150,150');
+   CreatePanelLabel("S6_Detail", tCol5, y + lineH * row, (S.ha > 0) ? "Alta" : (S.ha < 0) ? "Baixa" : "---", C'150,150,150');
    row++;
    
    // 7. VWAP
@@ -217,7 +217,7 @@ void UpdatePanel(const Signals &S) {
    CreatePanelLabel("S9_Sig", tCol2, y + lineH * row, SignalToIcon(S.qqe), SignalToColor(S.qqe));
    CreatePanelLabel("S9_Status", tCol3, y + lineH * row, SignalToText(S.qqe), SignalToColor(S.qqe));
    CreatePanelLabel("S9_Weight", tCol4, y + lineH * row, DoubleToString(W_QQE, 1), C'180,180,180');
-   CreatePanelLabel("S9_Detail", tCol5, y + lineH * row, UseQQEFilter ? ((S.qqe != 0) ? "Active" : "---") : "OFF", C'150,150,150');
+   CreatePanelLabel("S9_Detail", tCol5, y + lineH * row, UseQQEFilter ? ((S.qqe != 0) ? "Ativo" : "---") : "DESL", C'150,150,150');
    row++;
    
    row++; // Espaço
