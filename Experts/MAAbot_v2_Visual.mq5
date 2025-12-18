@@ -1,25 +1,24 @@
 //+------------------------------------------------------------------+
 //|                                         MAAbot_v2_Visual.mq5     |
 //|   XAUUSD M15 - Ensemble + Trend-Aware + TP/SL Precisos + Hedge   |
-//|   v2.5.2 - META DIÁRIA + OPERAÇÃO OBRIGATÓRIA                    |
+//|   v2.6.0 - OTIMIZAÇÃO INDIVIDUAL DE INDICADORES                  |
 //|                                     Autor: Eliabe N Oliveira     |
-//|                                      Data: 17/12/2025            |
+//|                                      Data: 18/12/2025            |
+//+------------------------------------------------------------------+
+//| NOVIDADES v2.6.0:                                                 |
+//| - OTIMIZAÇÃO INDIVIDUAL: Ative/desative cada indicador           |
+//| - Inputs REORGANIZADOS por indicador (fácil de encontrar)        |
+//| - Sistema de PESOS respeita indicadores desativados              |
+//| - MinSignals ajustado automaticamente aos ativos                 |
+//| - Interface em Português Brasileiro                              |
 //+------------------------------------------------------------------+
 //| NOVIDADES v2.5.2:                                                 |
 //| - OPERAÇÃO OBRIGATÓRIA: Bot é FORÇADO a operar todos os dias     |
 //| - Modo forçado ativa após X minutos sem trades                   |
-//| - Redução PROGRESSIVA de thresholds ao longo do dia              |
-//| - Ignora filtros gradualmente para garantir entrada              |
-//| - Gráfico de backtest: linha crescente 1% ao dia (SEM GAPS)      |
-//+------------------------------------------------------------------+
-//| NOVIDADES v2.5.1:                                                 |
-//| - Monitoramento de saldo INDEPENDENTE a cada tick                |
-//| - Fechamento AUTOMÁTICO ao atingir meta (garante 1% exato)       |
-//| - Bloqueio TOTAL de operações após meta (só opera amanhã)        |
 //+------------------------------------------------------------------+
 #property strict
-#property description "XAUUSD M15 — v2.5.2 - Meta Diária + Operação Obrigatória"
-#property version  "2.52"
+#property description "XAUUSD M15 — v2.6.0 - Otimização Individual de Indicadores"
+#property version  "2.60"
 
 //+------------------------------------------------------------------+
 //|                    INCLUDES - MÓDULOS DO EA                       |
@@ -122,7 +121,8 @@ int OnInit() {
    Print("              Heikin Ashi, VWAP, Momentum, QQE");
    Print("=============================================================");
    Print(" AllowLong=", AllowLong, " | AllowShort=", AllowShort);
-   Print(" MinAgreeSignals=", MinAgreeSignals, " | Mode=", EnumToString(PrecisionMode));
+   Print(" Indicadores ATIVOS: ", CountActiveIndicators(), "/9");
+   Print(" MinSinais Config=", MinAgreeSignals, " | Efetivo=", GetEffectiveMinSignals(), " | Mode=", EnumToString(PrecisionMode));
    Print("=============================================================");
    Print(" TRAILING STOP: ", EnumToString(AdvTrail_Mode));
    Print(" PROFIT LOCK: ", EnumToString(ProfitLock_Mode));
@@ -300,7 +300,7 @@ void OnTick() {
       // Ajusta thresholds se em modo agressivo OU forçado
       double thrL_adj = thrL;
       double thrS_adj = thrS;
-      int minSignals_adj = MinAgreeSignals;
+      int minSignals_adj = GetEffectiveMinSignals(); // Ajustado para indicadores ativos
       bool ignoreFilters = false;
 
       // NOVO: Usa funções COMBINADAS (agressivo + forçado)
