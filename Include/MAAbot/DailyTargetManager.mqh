@@ -87,7 +87,7 @@ int    g_dt_minutesWithoutTrade = 0;  // Minutos sem trade hoje
 
 //===================== INICIALIZAÇÃO =====================//
 void InitDailyTargetManager() {
-   if(DT_Mode == DTARGET_OFF) return;
+   if(!IsDailyTargetEnabled()) return;
 
    ZeroMemory(g_dtState);
    ArrayFree(g_dtHistory);
@@ -109,7 +109,7 @@ void InitDailyTargetManager() {
 }
 
 void DeinitDailyTargetManager() {
-   if(DT_Mode == DTARGET_OFF) return;
+   if(!IsDailyTargetEnabled()) return;
 
    // Salva estatísticas do dia
    if(DT_SaveDailyStats) {
@@ -384,7 +384,7 @@ void CheckTargetStatus() {
 // Deve ser chamada a cada tick no OnTick() principal
 //==================================================================================//
 bool MonitorBalanceOnTick(CTrade &trade) {
-   if(DT_Mode == DTARGET_OFF) return false;
+   if(!IsDailyTargetEnabled()) return false;
 
    // Verifica se é novo dia para resetar bloqueio
    CheckAndResetDailyBlock();
@@ -874,7 +874,7 @@ int GetAggressiveMaxPositions() {
 //          O bot SÓ volta a operar no DIA SEGUINTE
 //================================================================================//
 bool CanOpenNewTrade() {
-   if(DT_Mode == DTARGET_OFF) return true;
+   if(!IsDailyTargetEnabled()) return true;
 
    // PONTO 2: Se trading está bloqueado (meta atingida), não permite NENHUMA operação
    if(g_dt_tradingBlocked && DT_BlockAfterTarget) {
@@ -951,7 +951,7 @@ int CountOpenPositions() {
 
 //===================== FUNÇÃO PRINCIPAL DE GERENCIAMENTO =====================//
 void ManageDailyTarget() {
-   if(DT_Mode == DTARGET_OFF) return;
+   if(!IsDailyTargetEnabled()) return;
 
    // Verifica se mudou o dia
    CheckNewDay();
@@ -1037,7 +1037,7 @@ void UpdateStatusText() {
 
 //===================== AÇÃO AO FIM DO DIA =====================//
 void ExecuteEndOfDayAction(CTrade &trade) {
-   if(DT_Mode == DTARGET_OFF) return;
+   if(!IsDailyTargetEnabled()) return;
    if(GetMinutesRemaining() > 0) return;
 
    g_dtState.status = DAY_ENDED;
@@ -1186,7 +1186,7 @@ void SaveDailyHistory() {
 
 //===================== CALLBACKS PARA TRADES =====================//
 void OnDailyTargetTradeOpened() {
-   if(DT_Mode == DTARGET_OFF) return;
+   if(!IsDailyTargetEnabled()) return;
 
    g_dtState.tradesOpened++;
    g_dtState.lastTradeTime = TimeCurrent(); // Registra hora do trade
@@ -1204,7 +1204,7 @@ void OnDailyTargetTradeOpened() {
 }
 
 void OnDailyTargetTradeClosed(double profit) {
-   if(DT_Mode == DTARGET_OFF) return;
+   if(!IsDailyTargetEnabled()) return;
 
    g_dtState.tradesClosed++;
 
@@ -1221,7 +1221,7 @@ void OnDailyTargetTradeClosed(double profit) {
 
 //===================== GETTERS PARA INTEGRAÇÃO =====================//
 bool IsDailyTargetActive() {
-   return (DT_Mode != DTARGET_OFF);
+   return IsDailyTargetEnabled(); // Usa a função global que verifica Enable_DailyTarget
 }
 
 bool IsDailyTargetHit() {

@@ -90,7 +90,7 @@ double LotsForRiskPercent(double percent, int sl_points) {
 
    // ======== INTEGRAÇÃO META DIÁRIA ========
    // Aplica multiplicador do modo agressivo se ativo
-   if(DT_Mode != DTARGET_OFF && IsAggressiveModeActive()) {
+   if(IsDailyTargetEnabled() && IsAggressiveModeActive()) {
       baseLot = CalculateAggressiveLot(baseLot);
    }
 

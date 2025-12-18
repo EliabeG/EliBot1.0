@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                                 TrailingStop.mqh |
-//|   MAAbot v2.3.1 - Estratégias Avançadas de Trading Stop          |
+//|   MAAbot v2.6.0 - Estratégias Avançadas de Trailing Stop         |
 //|                                     Autor: Eliabe N Oliveira     |
 //|   Implementação: Claude AI - Trailing Stop Profissional          |
 //+------------------------------------------------------------------+
@@ -378,7 +378,9 @@ double CalcHybridStop(int type, double entry, double currentSL, double atr, int 
 // Gerencia o trailing stop de todas as posições abertas
 //==========================================================================//
 void ManageAdvancedTrailingStop(CTrade &trade) {
-   if(AdvTrail_Mode == TRAIL_OFF) return;
+   // Verifica se o trailing stop está ativado globalmente
+   if(!IsTrailingStopEnabled()) return;
+   if(GetEffectiveTrailingMode() == TRAIL_OFF) return;
    if(MG_Mode == MG_GRID) return; // Grid tem sua própria gestão
 
    // Limpa estados de posições fechadas
