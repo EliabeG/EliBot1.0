@@ -155,6 +155,28 @@ int OnInit() {
    trade.SetExpertMagicNumber(MagicNumber);
    trade.SetDeviationInPoints(20);
 
+   // IMPORTANTE: Resetar variáveis globais para otimização
+   g_sinalAtual = 0;
+   g_sinalAnterior = 0;
+   g_lastBarTime = 0;
+
+   // Reset PVP
+   g_pvp_coef_a = 0;
+   g_pvp_coef_b = 0;
+   g_pvp_coef_c = 0;
+   g_pvp_coef_d = 0;
+   g_pvp_velocidade = 0;
+   g_pvp_aceleracao = 0;
+   g_pvp_prob_alta = 0.5;
+   g_pvp_sigma_err = 0;
+
+   // Reset IAE
+   g_iae_deslocamento = 0;
+   g_iae_comprimento_arco = 0;
+   g_iae_eficiencia = 0;
+   g_iae_energia = 0;
+   g_iae_eficiencia_ant = 0;
+
    Print("═══════════════════════════════════════════════════════════");
    Print("      MAAbot TREINADOR - Otimização de Indicadores");
    Print("═══════════════════════════════════════════════════════════");
@@ -363,31 +385,15 @@ int SinalPVP() {
    // Calcular probabilidade de alta
    g_pvp_prob_alta = PVP_CalcularProbabilidadeAlta(g_pvp_velocidade, g_pvp_sigma_err);
 
-   // Calcular suporte/resistência dinâmicos
-   double suporte_dinamico = preco_previsto - 2.0 * g_pvp_sigma_err;
-   double resistencia_dinamica = preco_previsto + 2.0 * g_pvp_sigma_err;
-
-   double preco_atual = iClose(InpSymbol, InpTF, 1);
-
-   // Sinal de COMPRA
-   if(g_pvp_velocidade > 0 &&
-      g_pvp_aceleracao > 0 &&
-      g_pvp_prob_alta > PVP_ProbBuyThresh &&
-      preco_atual > suporte_dinamico) {
+   // Sinal de COMPRA (simplificado): velocidade + probabilidade
+   if(g_pvp_velocidade > 0 && g_pvp_prob_alta > PVP_ProbBuyThresh) {
       return +1;
    }
 
-   // Sinal de VENDA
-   if(g_pvp_velocidade < 0 &&
-      g_pvp_aceleracao < 0 &&
-      g_pvp_prob_alta < PVP_ProbSellThresh &&
-      preco_atual < resistencia_dinamica) {
+   // Sinal de VENDA (simplificado): velocidade + probabilidade
+   if(g_pvp_velocidade < 0 && g_pvp_prob_alta < PVP_ProbSellThresh) {
       return -1;
    }
-
-   // Persistência: manter sinal enquanto velocidade mantiver mesmo sinal
-   if(g_sinalAnterior == 1 && g_pvp_velocidade > 0) return +1;
-   if(g_sinalAnterior == -1 && g_pvp_velocidade < 0) return -1;
 
    return 0;
 }
@@ -635,27 +641,22 @@ int SinalIAE() {
    double energia_upper = energia_media + IAE_StdDevMult * energia_stddev;
    double energia_lower = energia_media - IAE_StdDevMult * energia_stddev;
 
-   //=== F. FILTRO DE RUÍDO: η crescendo ===
-   bool eficiencia_crescendo = (g_iae_eficiencia > g_iae_eficiencia_ant);
+   //=== F. ATUALIZAR ESTADO ===
    g_iae_eficiencia_ant = g_iae_eficiencia;
 
-   //=== G. LÓGICA DE SINALIZAÇÃO ===
+   //=== G. LÓGICA DE SINALIZAÇÃO (simplificada para otimização) ===
 
-   // Sinal de COMPRA
-   if(eficiencia_crescendo &&
-      energia_norm > 0 &&
-      g_iae_eficiencia > IAE_EffThreshold &&
+   // Sinal de COMPRA: η alto + direção alta + energia positiva
+   if(g_iae_eficiencia > IAE_EffThreshold &&
       g_iae_deslocamento > 0 &&
-      energia_norm > energia_upper) {
+      energia_norm > 0) {
       return +1;
    }
 
-   // Sinal de VENDA
-   if(eficiencia_crescendo &&
-      energia_norm < 0 &&
-      g_iae_eficiencia > IAE_EffThreshold &&
+   // Sinal de VENDA: η alto + direção baixa + energia negativa
+   if(g_iae_eficiencia > IAE_EffThreshold &&
       g_iae_deslocamento < 0 &&
-      energia_norm < energia_lower) {
+      energia_norm < 0) {
       return -1;
    }
 
