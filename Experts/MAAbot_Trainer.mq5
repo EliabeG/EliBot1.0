@@ -27,7 +27,7 @@ enum IndicadorParaOtimizar {
    OPT_IAE           = 3,  // 4. IAE (Integral Arc Efficiency)
    OPT_SCP           = 4,  // 5. SCP (Spectral Cycle Phaser)
    OPT_HEIKIN_ASHI   = 5,  // 6. Heikin Ashi
-   OPT_VWAP          = 6,  // 7. VWAP
+   OPT_FHMI          = 6,  // 7. FHMI (Fractal Hurst Memory Index)
    OPT_MOMENTUM      = 7,  // 8. Momentum (ROC)
    OPT_QQE           = 8   // 9. QQE
 };
@@ -103,11 +103,15 @@ input group "══════ 6. HEIKIN ASHI ══════"
 input int      HA_Confirmacao         = 2;             // Candles de confirmação
 
 //╔══════════════════════════════════════════════════════════════════╗
-//║          PARÂMETROS DO INDICADOR 7: VWAP                         ║
+//║          PARÂMETROS DO INDICADOR 7: FHMI (Fractal Hurst Memory)  ║
 //╚══════════════════════════════════════════════════════════════════╝
-input group "══════ 7. VWAP ══════"
-input ENUM_TIMEFRAMES VWAP_TF         = PERIOD_M1;     // Tempo Gráfico VWAP
-input bool     VWAP_UseRealVolume     = false;         // Usar Volume Real
+input group "══════ 7. FHMI - Fractal Hurst Memory Index ══════"
+input int      FHMI_Period            = 100;           // Período para cálculo R/S
+input int      FHMI_MomentumPeriod    = 14;            // Período do Momentum para confirmação
+input double   FHMI_TrendThreshold    = 0.6;           // Limiar H para Tendência (> 0.6 = persistente)
+input double   FHMI_RevertThreshold   = 0.4;           // Limiar H para Reversão (< 0.4 = anti-persistente)
+input double   FHMI_ExtremeHigh       = 0.8;           // H extremo alto (forte tendência)
+input double   FHMI_ExtremeLow        = 0.2;           // H extremo baixo (forte reversão)
 
 //╔══════════════════════════════════════════════════════════════════╗
 //║          PARÂMETROS DO INDICADOR 8: MOMENTUM (ROC)               ║
@@ -173,6 +177,17 @@ double g_scp_senoide_anterior2;  // Valor 2 barras atrás
 double g_scp_power_medio;        // Média do power
 double g_scp_power_buffer[];     // Buffer para cálculo de média
 
+// Variáveis FHMI (Fractal Hurst Memory Index)
+double g_fhmi_hurst;             // Expoente de Hurst atual (H)
+double g_fhmi_hurst_anterior;    // Hurst anterior
+double g_fhmi_RS;                // Razão R/S atual
+double g_fhmi_R;                 // Range (R) - Amplitude acumulada
+double g_fhmi_S;                 // Desvio padrão (S)
+double g_fhmi_momentum;          // Momentum atual (ROC)
+double g_fhmi_momentum_anterior; // Momentum anterior
+double g_fhmi_retornos_buffer[]; // Buffer de retornos logarítmicos
+bool   g_fhmi_initialized;       // Flag de inicialização
+
 // Constantes matemáticas
 #ifndef M_PI
    #define M_PI 3.14159265358979323846
@@ -230,6 +245,18 @@ int OnInit() {
    g_scp_power_medio = 0;
    ArrayResize(g_scp_power_buffer, SCP_PowerMAPeriod);
    ArrayInitialize(g_scp_power_buffer, 0);
+
+   // Reset FHMI
+   g_fhmi_hurst = 0.5;
+   g_fhmi_hurst_anterior = 0.5;
+   g_fhmi_RS = 0;
+   g_fhmi_R = 0;
+   g_fhmi_S = 0;
+   g_fhmi_momentum = 0;
+   g_fhmi_momentum_anterior = 0;
+   g_fhmi_initialized = false;
+   ArrayResize(g_fhmi_retornos_buffer, FHMI_Period);
+   ArrayInitialize(g_fhmi_retornos_buffer, 0);
 
    Print("═══════════════════════════════════════════════════════════");
    Print("      MAAbot TREINADOR - Otimização de Indicadores");
@@ -331,8 +358,8 @@ bool InicializarIndicadores() {
          // Heikin Ashi é calculado manualmente
          return true;
 
-      case OPT_VWAP:
-         // VWAP é calculado manualmente
+      case OPT_FHMI:
+         // FHMI é calculado manualmente (R/S Analysis)
          return true;
 
       case OPT_MOMENTUM:
@@ -357,7 +384,7 @@ int ObterSinalIndicador() {
       case OPT_IAE:         return SinalIAE();
       case OPT_SCP:         return SinalSCP();
       case OPT_HEIKIN_ASHI: return SinalHeikinAshi();
-      case OPT_VWAP:        return SinalVWAP();
+      case OPT_FHMI:        return SinalFHMI();
       case OPT_MOMENTUM:    return SinalMomentum();
       case OPT_QQE:         return SinalQQE();
    }
@@ -1138,42 +1165,147 @@ int SinalHeikinAshi() {
 }
 
 //+------------------------------------------------------------------+
-//|              7. SINAL VWAP                                        |
+//|              7. SINAL FHMI (Fractal Hurst Memory Index)           |
 //+------------------------------------------------------------------+
-int SinalVWAP() {
-   double vwap = CalcularVWAP();
-   if(vwap <= 0) return 0;
+int SinalFHMI() {
+   int minBars = FHMI_Period + FHMI_MomentumPeriod + 5;
+   if(Bars(InpSymbol, InpTF) < minBars) return 0;
 
-   double close = iClose(InpSymbol, InpTF, 1);
+   // Copiar dados de preço
+   double close[];
+   ArraySetAsSeries(close, true);
+   if(CopyClose(InpSymbol, InpTF, 0, minBars, close) < minBars) return 0;
 
-   // Preço acima do VWAP = COMPRA
-   if(close > vwap) return +1;
-   // Preço abaixo do VWAP = VENDA
-   if(close < vwap) return -1;
+   //=== 1. CALCULAR RETORNOS LOGARÍTMICOS ===
+   double retornos[];
+   ArrayResize(retornos, FHMI_Period);
+
+   for(int i = 0; i < FHMI_Period; i++) {
+      if(close[i + 2] > 0) {
+         retornos[i] = MathLog(close[i + 1] / close[i + 2]);
+      } else {
+         retornos[i] = 0;
+      }
+   }
+
+   //=== 2. CALCULAR EXPOENTE DE HURST VIA ANÁLISE R/S ===
+   g_fhmi_hurst_anterior = g_fhmi_hurst;
+   g_fhmi_hurst = FHMI_CalcularHurst(retornos, FHMI_Period);
+
+   //=== 3. CALCULAR MOMENTUM PARA CONFIRMAÇÃO ===
+   g_fhmi_momentum_anterior = g_fhmi_momentum;
+   if(close[1 + FHMI_MomentumPeriod] > 0) {
+      g_fhmi_momentum = (close[1] - close[1 + FHMI_MomentumPeriod]) / close[1 + FHMI_MomentumPeriod];
+   } else {
+      g_fhmi_momentum = 0;
+   }
+
+   //=== 4. LÓGICA DE SINALIZAÇÃO ===
+   // H > TrendThreshold: Mercado persistente (tendencial)
+   // H < RevertThreshold: Mercado anti-persistente (reversão à média)
+   // H ≈ 0.5: Random Walk (sem tendência clara)
+
+   bool mercado_tendencial = (g_fhmi_hurst > FHMI_TrendThreshold);
+   bool mercado_reversao = (g_fhmi_hurst < FHMI_RevertThreshold);
+   bool hurst_extremo_alto = (g_fhmi_hurst > FHMI_ExtremeHigh);
+   bool hurst_extremo_baixo = (g_fhmi_hurst < FHMI_ExtremeLow);
+
+   // Verificar mudança de regime (Hurst subindo ou descendo)
+   bool hurst_subindo = (g_fhmi_hurst > g_fhmi_hurst_anterior);
+   bool hurst_descendo = (g_fhmi_hurst < g_fhmi_hurst_anterior);
+
+   //=== SINAL DE COMPRA ===
+   // Opção 1: Mercado tendencial + Momentum positivo + Hurst subindo
+   if(mercado_tendencial && g_fhmi_momentum > 0 && hurst_subindo) {
+      return +1;
+   }
+
+   // Opção 2: Mercado em reversão extrema + Momentum virando positivo
+   if(hurst_extremo_baixo && g_fhmi_momentum > 0 && g_fhmi_momentum_anterior <= 0) {
+      return +1;
+   }
+
+   //=== SINAL DE VENDA ===
+   // Opção 1: Mercado tendencial + Momentum negativo + Hurst subindo
+   if(mercado_tendencial && g_fhmi_momentum < 0 && hurst_subindo) {
+      return -1;
+   }
+
+   // Opção 2: Mercado em reversão extrema + Momentum virando negativo
+   if(hurst_extremo_baixo && g_fhmi_momentum < 0 && g_fhmi_momentum_anterior >= 0) {
+      return -1;
+   }
 
    return 0;
 }
 
-double CalcularVWAP() {
-   datetime dayStart = StringToTime(TimeToString(TimeCurrent(), TIME_DATE));
-   int bars = Bars(InpSymbol, VWAP_TF, dayStart, TimeCurrent());
-   if(bars <= 0) return 0;
+//+------------------------------------------------------------------+
+//| FHMI: Calcular Expoente de Hurst via Análise R/S (Rescaled Range)|
+//| H = log(R/S) / log(N/2)                                           |
+//+------------------------------------------------------------------+
+double FHMI_CalcularHurst(double &retornos[], int n) {
+   if(n < 10) return 0.5;  // Retornar random walk se dados insuficientes
 
-   double sumPV = 0, sumV = 0;
+   //=== A. CALCULAR MÉDIA DOS RETORNOS ===
+   double soma = 0.0;
+   for(int i = 0; i < n; i++) {
+      soma += retornos[i];
+   }
+   double media = soma / n;
 
-   for(int i = 0; i < bars; i++) {
-      double h = iHigh(InpSymbol, VWAP_TF, i);
-      double l = iLow(InpSymbol, VWAP_TF, i);
-      double c = iClose(InpSymbol, VWAP_TF, i);
-      double typical = (h + l + c) / 3.0;
+   //=== B. CALCULAR DESVIO PADRÃO (S) ===
+   double soma_quad = 0.0;
+   for(int i = 0; i < n; i++) {
+      double diff = retornos[i] - media;
+      soma_quad += diff * diff;
+   }
+   double variancia = soma_quad / n;
+   g_fhmi_S = MathSqrt(variancia);
 
-      double vol = (double)(VWAP_UseRealVolume ? iVolume(InpSymbol, VWAP_TF, i) : iTickVolume(InpSymbol, VWAP_TF, i));
-
-      sumPV += typical * vol;
-      sumV += vol;
+   // Evitar divisão por zero
+   if(g_fhmi_S < 1e-10) {
+      g_fhmi_S = 1e-10;
+      return 0.5;
    }
 
-   return (sumV > 0) ? sumPV / sumV : 0;
+   //=== C. CALCULAR DESVIOS CUMULATIVOS ===
+   double desvios_cumulativos[];
+   ArrayResize(desvios_cumulativos, n);
+
+   double soma_cumulativa = 0.0;
+   for(int i = 0; i < n; i++) {
+      soma_cumulativa += (retornos[i] - media);
+      desvios_cumulativos[i] = soma_cumulativa;
+   }
+
+   //=== D. CALCULAR RANGE (R) ===
+   double max_cumul = desvios_cumulativos[0];
+   double min_cumul = desvios_cumulativos[0];
+
+   for(int i = 1; i < n; i++) {
+      if(desvios_cumulativos[i] > max_cumul) max_cumul = desvios_cumulativos[i];
+      if(desvios_cumulativos[i] < min_cumul) min_cumul = desvios_cumulativos[i];
+   }
+
+   g_fhmi_R = max_cumul - min_cumul;
+
+   //=== E. CALCULAR R/S ===
+   g_fhmi_RS = g_fhmi_R / g_fhmi_S;
+
+   //=== F. CALCULAR EXPOENTE DE HURST ===
+   // H = log(R/S) / log(N/2)
+   // Para evitar log de zero ou valores negativos
+   if(g_fhmi_RS <= 0 || n <= 2) {
+      return 0.5;
+   }
+
+   double H = MathLog(g_fhmi_RS) / MathLog((double)n / 2.0);
+
+   // Limitar H entre 0 e 1
+   if(H < 0.0) H = 0.0;
+   if(H > 1.0) H = 1.0;
+
+   return H;
 }
 
 //+------------------------------------------------------------------+
@@ -1304,7 +1436,7 @@ string GetIndicadorNome() {
       case OPT_IAE:         return "IAE";
       case OPT_SCP:         return "SCP";
       case OPT_HEIKIN_ASHI: return "Heikin Ashi";
-      case OPT_VWAP:        return "VWAP";
+      case OPT_FHMI:        return "FHMI";
       case OPT_MOMENTUM:    return "Momentum";
       case OPT_QQE:         return "QQE";
    }
