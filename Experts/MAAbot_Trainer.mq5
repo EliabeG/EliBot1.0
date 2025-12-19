@@ -21,7 +21,7 @@
 //║                    SELEÇÃO DO INDICADOR                          ║
 //╚══════════════════════════════════════════════════════════════════╝
 enum IndicadorParaOtimizar {
-   OPT_EWGC          = 0,  // 1. EWGC (Entropy-Weighted Gaussian Channel)
+   OPT_AKTE          = 0,  // 1. AKTE (Adaptive Kalman Trend Estimator)
    OPT_RSI           = 1,  // 2. RSI
    OPT_PVP           = 2,  // 3. PVP (Polynomial Velocity Predictor)
    OPT_IAE           = 3,  // 4. IAE (Integral Arc Efficiency)
@@ -36,7 +36,7 @@ enum IndicadorParaOtimizar {
 //║                    CONFIGURAÇÕES BÁSICAS                         ║
 //╚══════════════════════════════════════════════════════════════════╝
 input group "══════ CONFIGURAÇÃO DO TREINADOR ══════"
-input IndicadorParaOtimizar Indicador = OPT_EWGC;  // ████ INDICADOR PARA OTIMIZAR ████
+input IndicadorParaOtimizar Indicador = OPT_AKTE;  // ████ INDICADOR PARA OTIMIZAR ████
 input string   InpSymbol              = "XAUUSD";      // Símbolo
 input ENUM_TIMEFRAMES InpTF           = PERIOD_M15;    // Tempo Gráfico
 
@@ -49,14 +49,14 @@ input double   LoteFixo               = 0.01;          // Lote Fixo
 input long     MagicNumber            = 99999;         // Número Mágico
 
 //╔══════════════════════════════════════════════════════════════════╗
-//║          PARÂMETROS DO INDICADOR 1: EWGC                         ║
+//║          PARÂMETROS DO INDICADOR 1: AKTE (Kalman Filter)         ║
 //╚══════════════════════════════════════════════════════════════════╝
-input group "══════ 1. EWGC - Entropy-Weighted Gaussian Channel ══════"
-input int      EWGC_Period            = 50;            // Período da Janela (n velas)
-input int      EWGC_Buckets           = 15;            // Número de Buckets (10-20)
-input double   EWGC_ExpansionFactor   = 2.0;           // Fator de Expansão do Canal
-input double   EWGC_ChaosThreshold    = 0.8;           // Limiar de Caos (H > valor = caótico)
-input double   EWGC_SniperThreshold   = 0.5;           // Limiar Sniper (H < valor = ordenado)
+input group "══════ 1. AKTE - Adaptive Kalman Trend Estimator ══════"
+input double   AKTE_Q                 = 0.01;          // Q - Ruído do Processo (0.001-0.1)
+input int      AKTE_ATRPeriod         = 10;            // Período do ATR para R adaptativo
+input double   AKTE_BandMultiplier    = 2.0;           // Multiplicador das Bandas de Erro
+input int      AKTE_StdDevPeriod      = 20;            // Período para StdDev dos Resíduos
+input double   AKTE_InitialP          = 1.0;           // P Inicial (Incerteza Inicial)
 
 //╔══════════════════════════════════════════════════════════════════╗
 //║          PARÂMETROS DO INDICADOR 2: RSI                          ║
@@ -131,18 +131,24 @@ CTrade trade;
 // Handles dos indicadores
 int hRSI = INVALID_HANDLE;
 int hEMA_IAE = INVALID_HANDLE;   // EMA para IAE
+int hATR_AKTE = INVALID_HANDLE;  // ATR para AKTE
 
 // Variáveis de estado
 int g_sinalAtual = 0;       // +1 = COMPRA, -1 = VENDA, 0 = NEUTRO
 int g_sinalAnterior = 0;
 datetime g_lastBarTime = 0;
 
-// Variáveis EWGC (Entropy-Weighted Gaussian Channel)
-double g_ewgc_entropia;          // Entropia normalizada H
-double g_ewgc_p_gaussian;        // Linha central gaussiana
-double g_ewgc_largura_canal;     // Largura do canal
-double g_ewgc_mad;               // Mean Absolute Deviation
-double g_ewgc_sigma_dinamico;    // Sigma dinâmico
+// Variáveis AKTE (Adaptive Kalman Trend Estimator)
+double g_akte_x_atual;           // Estado estimado atual (linha Kalman)
+double g_akte_x_anterior;        // Estado anterior
+double g_akte_P_atual;           // Covariância atual
+double g_akte_K_atual;           // Ganho de Kalman atual
+double g_akte_K_anterior;        // Ganho anterior
+double g_akte_R_atual;           // Ruído de medição (adaptativo via ATR)
+double g_akte_error_atual;       // Erro estimado
+double g_akte_ATR_atual;         // ATR atual
+double g_akte_kalman_buffer[];   // Buffer do Kalman para cálculo de resíduos
+bool   g_akte_initialized;       // Flag de inicialização
 
 // Variáveis PVP (Polynomial Velocity Predictor)
 double g_pvp_coef_a, g_pvp_coef_b, g_pvp_coef_c, g_pvp_coef_d;  // Coeficientes polinômio
@@ -184,12 +190,18 @@ int OnInit() {
    g_sinalAnterior = 0;
    g_lastBarTime = 0;
 
-   // Reset EWGC
-   g_ewgc_entropia = 0;
-   g_ewgc_p_gaussian = 0;
-   g_ewgc_largura_canal = 0;
-   g_ewgc_mad = 0;
-   g_ewgc_sigma_dinamico = 0;
+   // Reset AKTE
+   g_akte_x_atual = 0;
+   g_akte_x_anterior = 0;
+   g_akte_P_atual = AKTE_InitialP;
+   g_akte_K_atual = 0;
+   g_akte_K_anterior = 0;
+   g_akte_R_atual = 0;
+   g_akte_error_atual = 0;
+   g_akte_ATR_atual = 0;
+   g_akte_initialized = false;
+   ArrayResize(g_akte_kalman_buffer, AKTE_StdDevPeriod);
+   ArrayInitialize(g_akte_kalman_buffer, 0);
 
    // Reset PVP
    g_pvp_coef_a = 0;
@@ -243,6 +255,7 @@ void OnDeinit(const int reason) {
    // Libera handles
    if(hRSI != INVALID_HANDLE) IndicatorRelease(hRSI);
    if(hEMA_IAE != INVALID_HANDLE) IndicatorRelease(hEMA_IAE);
+   if(hATR_AKTE != INVALID_HANDLE) IndicatorRelease(hATR_AKTE);
 
    Print("═══════════════════════════════════════════════════════════");
    Print("      MAAbot TREINADOR - Finalizado");
@@ -293,9 +306,10 @@ void OnTick() {
 //+------------------------------------------------------------------+
 bool InicializarIndicadores() {
    switch(Indicador) {
-      case OPT_EWGC:
-         // EWGC é calculado manualmente (entropia + gaussiano)
-         return true;
+      case OPT_AKTE:
+         // AKTE usa ATR para adaptação do ruído de medição
+         hATR_AKTE = iATR(InpSymbol, InpTF, AKTE_ATRPeriod);
+         return (hATR_AKTE != INVALID_HANDLE);
 
       case OPT_RSI:
          hRSI = iRSI(InpSymbol, InpTF, RSI_Period, PRICE_CLOSE);
@@ -337,7 +351,7 @@ bool InicializarIndicadores() {
 //+------------------------------------------------------------------+
 int ObterSinalIndicador() {
    switch(Indicador) {
-      case OPT_EWGC:        return SinalEWGC();
+      case OPT_AKTE:        return SinalAKTE();
       case OPT_RSI:         return SinalRSI();
       case OPT_PVP:         return SinalPVP();
       case OPT_IAE:         return SinalIAE();
@@ -351,53 +365,113 @@ int ObterSinalIndicador() {
 }
 
 //+------------------------------------------------------------------+
-//|              1. SINAL EWGC (Entropy-Weighted Gaussian Channel)    |
+//|              1. SINAL AKTE (Adaptive Kalman Trend Estimator)      |
 //+------------------------------------------------------------------+
-int SinalEWGC() {
-   if(Bars(InpSymbol, InpTF) < EWGC_Period + 2) return 0;
+int SinalAKTE() {
+   int minBars = AKTE_ATRPeriod + AKTE_StdDevPeriod + 2;
+   if(Bars(InpSymbol, InpTF) < minBars) return 0;
 
-   // Copiar dados
+   // Copiar dados de preço
    double close[];
    ArraySetAsSeries(close, true);
-   if(CopyClose(InpSymbol, InpTF, 0, EWGC_Period + 2, close) < EWGC_Period + 2) return 0;
+   if(CopyClose(InpSymbol, InpTF, 0, minBars, close) < minBars) return 0;
 
-   //=== A. CALCULAR ENTROPIA DE SHANNON NORMALIZADA ===
-   g_ewgc_entropia = EWGC_CalcularEntropiaNormalizada(close, 1, EWGC_Period, EWGC_Buckets);
+   // Copiar ATR
+   double atr[];
+   ArraySetAsSeries(atr, true);
+   if(CopyBuffer(hATR_AKTE, 0, 0, 3, atr) < 3) return 0;
 
-   // Verificar se mercado está caótico - NÃO dar sinais
-   if(g_ewgc_entropia > EWGC_ChaosThreshold) return 0;
+   // Obter preço atual (medição z)
+   double z = close[1];
 
-   //=== B. CALCULAR SIGMA DINÂMICO E LINHA CENTRAL GAUSSIANA ===
-   g_ewgc_sigma_dinamico = EWGC_Period * (1.0 - g_ewgc_entropia);
-   if(g_ewgc_sigma_dinamico < 1.0) g_ewgc_sigma_dinamico = 1.0;
+   // Obter ATR atual para adaptação de R
+   g_akte_ATR_atual = atr[1];
+   if(g_akte_ATR_atual < SymbolInfoDouble(InpSymbol, SYMBOL_POINT))
+      g_akte_ATR_atual = SymbolInfoDouble(InpSymbol, SYMBOL_POINT);
 
-   g_ewgc_p_gaussian = EWGC_CalcularMediaGaussiana(close, 1, EWGC_Period, g_ewgc_sigma_dinamico);
+   //=== ADAPTAÇÃO DINÂMICA DE R ===
+   // R = (ATR)² - Ruído de medição baseado na volatilidade
+   g_akte_R_atual = g_akte_ATR_atual * g_akte_ATR_atual;
 
-   //=== C. CALCULAR CANAL DINÂMICO ===
-   g_ewgc_mad = EWGC_CalcularMAD(close, 1, EWGC_Period, g_ewgc_p_gaussian);
-   g_ewgc_largura_canal = g_ewgc_mad * (1.0 + g_ewgc_entropia * EWGC_ExpansionFactor);
+   //=== FILTRO DE KALMAN 1D ===
+   if(!g_akte_initialized) {
+      // Inicialização: x = preço atual
+      g_akte_x_atual = z;
+      g_akte_x_anterior = z;
+      g_akte_P_atual = AKTE_InitialP;
+      g_akte_K_atual = 0.5;
+      g_akte_K_anterior = 0.5;
+      g_akte_initialized = true;
 
-   double bandaSuperior = g_ewgc_p_gaussian + g_ewgc_largura_canal;
-   double bandaInferior = g_ewgc_p_gaussian - g_ewgc_largura_canal;
+      // Atualizar buffer
+      AKTE_AtualizarBuffer(g_akte_x_atual);
+      return 0;
+   }
 
-   double preco_atual = close[1];
+   // Salvar valores anteriores
+   g_akte_x_anterior = g_akte_x_atual;
+   g_akte_K_anterior = g_akte_K_atual;
 
-   //=== D. LÓGICA DE SINALIZAÇÃO ===
-   // Nota: Se entropia > ChaosThreshold, já retornamos 0 acima
+   //=== 1. PREDIÇÃO (Time Update) ===
+   // x_pred = x_ant (Random Walk Model)
+   double x_pred = g_akte_x_anterior;
 
-   // Modo "Sniper": entropia muito baixa = mercado muito ordenado = sinais mais confiáveis
-   bool modoSniper = (g_ewgc_entropia < EWGC_SniperThreshold);
+   // P_pred = P_ant + Q
+   double P_pred = g_akte_P_atual + AKTE_Q;
 
-   // Sinal de COMPRA: preço toca/cruza banda inferior
-   // Em modo sniper, aceita preço próximo da banda (dentro de 20% da largura)
-   double margemSniper = modoSniper ? g_ewgc_largura_canal * 0.2 : 0;
+   //=== 2. CÁLCULO DO GANHO DE KALMAN ===
+   // K = P_pred / (P_pred + R)
+   double K = P_pred / (P_pred + g_akte_R_atual);
 
-   if(preco_atual <= bandaInferior + margemSniper) {
+   // Limitar K entre 0 e 1
+   if(K < 0.0) K = 0.0;
+   if(K > 1.0) K = 1.0;
+
+   //=== 3. CORREÇÃO (Measurement Update) ===
+   // x_atual = x_pred + K · (z - x_pred)
+   g_akte_x_atual = x_pred + K * (z - x_pred);
+
+   // P_atual = (1 - K) · P_pred
+   g_akte_P_atual = (1.0 - K) * P_pred;
+   g_akte_K_atual = K;
+
+   // Atualizar buffer para cálculo de resíduos
+   AKTE_AtualizarBuffer(g_akte_x_atual);
+
+   //=== CÁLCULO DO ERRO ESTIMADO ===
+   double residuo_stddev = AKTE_CalcularStdDevResiduos(close);
+   g_akte_error_atual = MathSqrt(g_akte_P_atual) + residuo_stddev;
+
+   // Calcular bandas
+   double bandaSuperior = g_akte_x_atual + AKTE_BandMultiplier * g_akte_error_atual;
+   double bandaInferior = g_akte_x_atual - AKTE_BandMultiplier * g_akte_error_atual;
+
+   //=== LÓGICA DE SINALIZAÇÃO ===
+   double close_atual = close[1];
+   double close_anterior = close[2];
+
+   // Verificar inclinação da linha Kalman
+   bool inclinacao_positiva = (g_akte_x_atual > g_akte_x_anterior);
+   bool inclinacao_negativa = (g_akte_x_atual < g_akte_x_anterior);
+
+   // Verificar se Ganho K está subindo (aumento de confiança)
+   bool K_subindo = (g_akte_K_atual > g_akte_K_anterior);
+
+   // Cruzamento do preço com a linha Kalman
+   bool cruza_para_cima = (close_anterior < g_akte_x_anterior && close_atual > g_akte_x_atual);
+   bool cruza_para_baixo = (close_anterior > g_akte_x_anterior && close_atual < g_akte_x_atual);
+
+   //=== SINAL DE COMPRA ===
+   // Preço cruza de baixo para cima a linha Kalman
+   // Inclinação positiva + Ganho K subindo
+   if(cruza_para_cima && inclinacao_positiva && K_subindo) {
       return +1;
    }
 
-   // Sinal de VENDA: preço toca/cruza banda superior
-   if(preco_atual >= bandaSuperior - margemSniper) {
+   //=== SINAL DE VENDA ===
+   // Preço cruza de cima para baixo a linha Kalman
+   // Inclinação negativa + Ganho K subindo
+   if(cruza_para_baixo && inclinacao_negativa && K_subindo) {
       return -1;
    }
 
@@ -405,104 +479,43 @@ int SinalEWGC() {
 }
 
 //+------------------------------------------------------------------+
-//| EWGC: Calcular Entropia de Shannon Normalizada                    |
+//| AKTE: Atualizar Buffer do Kalman (circular)                       |
 //+------------------------------------------------------------------+
-double EWGC_CalcularEntropiaNormalizada(double &price[], int idx, int period, int num_buckets) {
-   // Calcular retornos logarítmicos
-   double retornos[];
-   ArrayResize(retornos, period - 1);
-
-   double min_retorno = DBL_MAX;
-   double max_retorno = -DBL_MAX;
-
-   for(int j = 0; j < period - 1; j++) {
-      int current = idx + j;
-      int previous = current + 1;
-
-      if(price[previous] <= 0) {
-         retornos[j] = 0;
-         continue;
-      }
-
-      retornos[j] = MathLog(price[current] / price[previous]);
-
-      if(retornos[j] < min_retorno) min_retorno = retornos[j];
-      if(retornos[j] > max_retorno) max_retorno = retornos[j];
+void AKTE_AtualizarBuffer(double valor) {
+   // Deslocar valores
+   for(int i = AKTE_StdDevPeriod - 1; i > 0; i--) {
+      g_akte_kalman_buffer[i] = g_akte_kalman_buffer[i - 1];
    }
-
-   // Criar histograma de frequência
-   double range = max_retorno - min_retorno;
-   if(range < 1e-10) range = 1e-10;
-
-   double bucket_size = range / num_buckets;
-
-   int frequencias[];
-   ArrayResize(frequencias, num_buckets);
-   ArrayInitialize(frequencias, 0);
-
-   int total_retornos = period - 1;
-
-   for(int j = 0; j < total_retornos; j++) {
-      int bucket_idx = (int)MathFloor((retornos[j] - min_retorno) / bucket_size);
-      if(bucket_idx < 0) bucket_idx = 0;
-      if(bucket_idx >= num_buckets) bucket_idx = num_buckets - 1;
-      frequencias[bucket_idx]++;
-   }
-
-   // Calcular entropia H = -Σ p_k · ln(p_k)
-   double entropia = 0.0;
-   for(int k = 0; k < num_buckets; k++) {
-      if(frequencias[k] > 0) {
-         double p_k = (double)frequencias[k] / (double)total_retornos;
-         entropia -= p_k * MathLog(p_k);
-      }
-   }
-
-   // Normalizar H_norm = H / ln(N)
-   double entropia_maxima = MathLog((double)num_buckets);
-   if(entropia_maxima > 0)
-      return entropia / entropia_maxima;
-   return 0;
+   g_akte_kalman_buffer[0] = valor;
 }
 
 //+------------------------------------------------------------------+
-//| EWGC: Calcular Média Gaussiana Ponderada                          |
+//| AKTE: Calcular Desvio Padrão dos Resíduos (Close - Kalman)        |
 //+------------------------------------------------------------------+
-double EWGC_CalcularMediaGaussiana(double &price[], int idx, int period, double sigma) {
-   double soma_ponderada = 0.0;
-   double soma_pesos = 0.0;
-
-   double sigma_sq_2 = 2.0 * sigma * sigma;
-   if(sigma_sq_2 < 1e-10) sigma_sq_2 = 1e-10;
-
-   for(int j = 0; j < period; j++) {
-      int current = idx + j;
-      double peso = MathExp(-(double)(j * j) / sigma_sq_2);
-      soma_ponderada += price[current] * peso;
-      soma_pesos += peso;
-   }
-
-   if(soma_pesos > 0)
-      return soma_ponderada / soma_pesos;
-   return price[idx];
-}
-
-//+------------------------------------------------------------------+
-//| EWGC: Calcular MAD (Mean Absolute Deviation)                      |
-//+------------------------------------------------------------------+
-double EWGC_CalcularMAD(double &price[], int idx, int period, double media) {
-   double soma_desvios = 0.0;
+double AKTE_CalcularStdDevResiduos(double &close[]) {
+   double soma = 0.0;
+   double soma_quad = 0.0;
    int count = 0;
 
-   for(int j = 0; j < period; j++) {
-      int current = idx + j;
-      soma_desvios += MathAbs(price[current] - media);
-      count++;
+   for(int j = 0; j < AKTE_StdDevPeriod; j++) {
+      if(g_akte_kalman_buffer[j] != 0.0) {
+         double residuo = close[j + 1] - g_akte_kalman_buffer[j];
+         soma += residuo;
+         soma_quad += residuo * residuo;
+         count++;
+      }
    }
 
-   if(count > 0)
-      return soma_desvios / count;
-   return 0;
+   if(count < 2)
+      return 0.0;
+
+   double media = soma / count;
+   double variancia = (soma_quad / count) - (media * media);
+
+   if(variancia < 0.0)
+      variancia = 0.0;
+
+   return MathSqrt(variancia);
 }
 
 //+------------------------------------------------------------------+
@@ -1285,7 +1298,7 @@ void AbrirVenda() {
 
 string GetIndicadorNome() {
    switch(Indicador) {
-      case OPT_EWGC:        return "EWGC";
+      case OPT_AKTE:        return "AKTE";
       case OPT_RSI:         return "RSI";
       case OPT_PVP:         return "PVP";
       case OPT_IAE:         return "IAE";
