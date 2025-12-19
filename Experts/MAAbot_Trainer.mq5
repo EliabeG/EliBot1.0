@@ -24,7 +24,7 @@ enum IndicadorParaOtimizar {
    OPT_MA_CROSS      = 0,  // 1. Cruzamento de Médias (MA Cross)
    OPT_RSI           = 1,  // 2. RSI
    OPT_PVP           = 2,  // 3. PVP (Polynomial Velocity Predictor)
-   OPT_SUPERTREND    = 3,  // 4. SuperTrend
+   OPT_IAE           = 3,  // 4. IAE (Integral Arc Efficiency)
    OPT_AMA_KAMA      = 4,  // 5. AMA/KAMA
    OPT_HEIKIN_ASHI   = 5,  // 6. Heikin Ashi
    OPT_VWAP          = 6,  // 7. VWAP
@@ -74,11 +74,15 @@ input double   PVP_ProbBuyThresh      = 0.75;          // Limiar Prob. Compra (0
 input double   PVP_ProbSellThresh     = 0.25;          // Limiar Prob. Venda (0.25 = 25%)
 
 //╔══════════════════════════════════════════════════════════════════╗
-//║          PARÂMETROS DO INDICADOR 4: SUPERTREND                   ║
+//║          PARÂMETROS DO INDICADOR 4: IAE                          ║
 //╚══════════════════════════════════════════════════════════════════╝
-input group "══════ 4. SUPERTREND ══════"
-input int      ST_ATR_Period          = 10;            // Período ATR
-input double   ST_Multiplicador       = 3.0;           // Multiplicador
+input group "══════ 4. IAE - Integral Arc Efficiency ══════"
+input int      IAE_Period             = 20;            // Período da Janela Móvel (n)
+input int      IAE_EMA_Period         = 9;             // Período da EMA base
+input double   IAE_EffThreshold       = 0.6;           // Limiar de Eficiência (η)
+input double   IAE_ScaleFactor        = 1.0;           // Fator de Escala (λ)
+input int      IAE_StdDevPeriod       = 20;            // Período para Desvio Padrão
+input double   IAE_StdDevMult         = 2.0;           // Multiplicador do Desvio Padrão
 
 //╔══════════════════════════════════════════════════════════════════╗
 //║          PARÂMETROS DO INDICADOR 5: AMA/KAMA                     ║
@@ -124,7 +128,7 @@ CTrade trade;
 int hEMAfast = INVALID_HANDLE;
 int hEMAslow = INVALID_HANDLE;
 int hRSI = INVALID_HANDLE;
-int hATR = INVALID_HANDLE;
+int hEMA_IAE = INVALID_HANDLE;   // EMA para IAE
 
 // Variáveis de estado
 int g_sinalAtual = 0;       // +1 = COMPRA, -1 = VENDA, 0 = NEUTRO
@@ -136,6 +140,13 @@ double g_pvp_coef_a, g_pvp_coef_b, g_pvp_coef_c, g_pvp_coef_d;  // Coeficientes 
 double g_pvp_velocidade, g_pvp_aceleracao;                       // Derivadas
 double g_pvp_prob_alta;                                          // Probabilidade de alta
 double g_pvp_sigma_err;                                          // Desvio padrão dos erros
+
+// Variáveis IAE (Integral Arc Efficiency)
+double g_iae_deslocamento;       // D - Deslocamento Vetorial
+double g_iae_comprimento_arco;   // S - Comprimento de Arco
+double g_iae_eficiencia;         // η - Coeficiente de Eficiência
+double g_iae_energia;            // Energia Integral
+double g_iae_eficiencia_ant;     // Eficiência anterior (para filtro)
 
 //+------------------------------------------------------------------+
 //|                        OnInit                                     |
@@ -169,7 +180,7 @@ void OnDeinit(const int reason) {
    if(hEMAfast != INVALID_HANDLE) IndicatorRelease(hEMAfast);
    if(hEMAslow != INVALID_HANDLE) IndicatorRelease(hEMAslow);
    if(hRSI != INVALID_HANDLE) IndicatorRelease(hRSI);
-   if(hATR != INVALID_HANDLE) IndicatorRelease(hATR);
+   if(hEMA_IAE != INVALID_HANDLE) IndicatorRelease(hEMA_IAE);
 
    Print("═══════════════════════════════════════════════════════════");
    Print("      MAAbot TREINADOR - Finalizado");
@@ -233,9 +244,9 @@ bool InicializarIndicadores() {
          // PVP é calculado manualmente (regressão polinomial)
          return true;
 
-      case OPT_SUPERTREND:
-         hATR = iATR(InpSymbol, InpTF, ST_ATR_Period);
-         return (hATR != INVALID_HANDLE);
+      case OPT_IAE:
+         hEMA_IAE = iMA(InpSymbol, InpTF, IAE_EMA_Period, 0, MODE_EMA, PRICE_CLOSE);
+         return (hEMA_IAE != INVALID_HANDLE);
 
       case OPT_AMA_KAMA:
          // KAMA é calculado manualmente
@@ -268,7 +279,7 @@ int ObterSinalIndicador() {
       case OPT_MA_CROSS:    return SinalMACross();
       case OPT_RSI:         return SinalRSI();
       case OPT_PVP:         return SinalPVP();
-      case OPT_SUPERTREND:  return SinalSupertrend();
+      case OPT_IAE:         return SinalIAE();
       case OPT_AMA_KAMA:    return SinalAMAKAMA();
       case OPT_HEIKIN_ASHI: return SinalHeikinAshi();
       case OPT_VWAP:        return SinalVWAP();
@@ -566,34 +577,125 @@ double PVP_CalcularProbabilidadeAlta(double velocidade, double sigma_err) {
 }
 
 //+------------------------------------------------------------------+
-//|              4. SINAL SUPERTREND                                  |
+//|              4. SINAL IAE (Integral Arc Efficiency)               |
 //+------------------------------------------------------------------+
-int SinalSupertrend() {
-   double atr[];
-   ArraySetAsSeries(atr, true);
+int SinalIAE() {
+   int minBars = IAE_Period + IAE_StdDevPeriod + 1;
+   if(Bars(InpSymbol, InpTF) < minBars) return 0;
 
-   if(CopyBuffer(hATR, 0, 0, 10, atr) < 10) return 0;
-
-   double high[], low[], close[];
-   ArraySetAsSeries(high, true);
-   ArraySetAsSeries(low, true);
+   // Copiar dados
+   double close[], ema[];
    ArraySetAsSeries(close, true);
+   ArraySetAsSeries(ema, true);
 
-   if(CopyHigh(InpSymbol, InpTF, 0, 10, high) < 10) return 0;
-   if(CopyLow(InpSymbol, InpTF, 0, 10, low) < 10) return 0;
-   if(CopyClose(InpSymbol, InpTF, 0, 10, close) < 10) return 0;
+   if(CopyClose(InpSymbol, InpTF, 0, minBars, close) < minBars) return 0;
+   if(CopyBuffer(hEMA_IAE, 0, 0, minBars, ema) < minBars) return 0;
 
-   // Cálculo simplificado do SuperTrend
-   double hl2 = (high[1] + low[1]) / 2.0;
-   double upperBand = hl2 + ST_Multiplicador * atr[1];
-   double lowerBand = hl2 - ST_Multiplicador * atr[1];
+   // Normalização
+   double point_scale = SymbolInfoDouble(InpSymbol, SYMBOL_POINT) * 10000;
+   if(point_scale == 0) point_scale = 0.01;
 
-   // Tendência de alta: preço acima da banda inferior
-   if(close[1] > lowerBand && close[2] > lowerBand) return +1;
-   // Tendência de baixa: preço abaixo da banda superior
-   if(close[1] < upperBand && close[2] < upperBand) return -1;
+   //=== A. CALCULAR DESLOCAMENTO VETORIAL (D) ===
+   g_iae_deslocamento = close[1] - close[IAE_Period];
+
+   //=== B. CALCULAR COMPRIMENTO DE ARCO (S) ===
+   g_iae_comprimento_arco = IAE_CalcularComprimentoArco(close, 1, IAE_Period);
+
+   //=== C. CALCULAR COEFICIENTE DE EFICIÊNCIA (η) ===
+   if(g_iae_comprimento_arco > 0)
+      g_iae_eficiencia = MathAbs(g_iae_deslocamento) / g_iae_comprimento_arco;
+   else
+      g_iae_eficiencia = 0;
+
+   g_iae_eficiencia = MathMin(g_iae_eficiencia, 1.0);
+   g_iae_eficiencia = MathMax(g_iae_eficiencia, 0.0);
+
+   //=== D. CALCULAR ENERGIA (Integral de Riemann) ===
+   g_iae_energia = IAE_CalcularEnergiaIntegral(close, ema, 1, IAE_Period);
+   double energia_norm = g_iae_energia / (IAE_Period * point_scale);
+
+   //=== E. CALCULAR DESVIO PADRÃO DA ENERGIA ===
+   double energia_hist[];
+   ArrayResize(energia_hist, IAE_StdDevPeriod);
+   for(int i = 0; i < IAE_StdDevPeriod; i++) {
+      double e = IAE_CalcularEnergiaIntegral(close, ema, 1 + i, IAE_Period);
+      energia_hist[i] = e / (IAE_Period * point_scale);
+   }
+
+   double energia_media = 0, energia_stddev = 0;
+   for(int i = 0; i < IAE_StdDevPeriod; i++) energia_media += energia_hist[i];
+   energia_media /= IAE_StdDevPeriod;
+
+   for(int i = 0; i < IAE_StdDevPeriod; i++) {
+      double diff = energia_hist[i] - energia_media;
+      energia_stddev += diff * diff;
+   }
+   energia_stddev = MathSqrt(energia_stddev / IAE_StdDevPeriod);
+
+   double energia_upper = energia_media + IAE_StdDevMult * energia_stddev;
+   double energia_lower = energia_media - IAE_StdDevMult * energia_stddev;
+
+   //=== F. FILTRO DE RUÍDO: η crescendo ===
+   bool eficiencia_crescendo = (g_iae_eficiencia > g_iae_eficiencia_ant);
+   g_iae_eficiencia_ant = g_iae_eficiencia;
+
+   //=== G. LÓGICA DE SINALIZAÇÃO ===
+
+   // Sinal de COMPRA
+   if(eficiencia_crescendo &&
+      energia_norm > 0 &&
+      g_iae_eficiencia > IAE_EffThreshold &&
+      g_iae_deslocamento > 0 &&
+      energia_norm > energia_upper) {
+      return +1;
+   }
+
+   // Sinal de VENDA
+   if(eficiencia_crescendo &&
+      energia_norm < 0 &&
+      g_iae_eficiencia > IAE_EffThreshold &&
+      g_iae_deslocamento < 0 &&
+      energia_norm < energia_lower) {
+      return -1;
+   }
 
    return 0;
+}
+
+//+------------------------------------------------------------------+
+//| IAE: Calcular Comprimento de Arco                                 |
+//+------------------------------------------------------------------+
+double IAE_CalcularComprimentoArco(double &price[], int idx, int period) {
+   double arc_length = 0.0;
+   double pt = SymbolInfoDouble(InpSymbol, SYMBOL_POINT);
+   if(pt == 0) pt = 0.00001;
+
+   for(int j = 1; j < period; j++) {
+      int current = idx + j - 1;
+      int previous = idx + j;
+
+      double delta_price = (price[current] - price[previous]) / pt;
+      double delta_t = IAE_ScaleFactor;
+      double segment = MathSqrt(delta_t * delta_t + delta_price * delta_price);
+      arc_length += segment;
+   }
+
+   return arc_length * pt;
+}
+
+//+------------------------------------------------------------------+
+//| IAE: Calcular Energia Integral (Riemann)                          |
+//+------------------------------------------------------------------+
+double IAE_CalcularEnergiaIntegral(double &price[], double &ema_buf[], int idx, int period) {
+   double energia = 0.0;
+
+   for(int j = 0; j < period; j++) {
+      int current = idx + j;
+      double diff = price[current] - ema_buf[current];
+      energia += diff;
+   }
+
+   return energia;
 }
 
 //+------------------------------------------------------------------+
@@ -845,7 +947,7 @@ string GetIndicadorNome() {
       case OPT_MA_CROSS:    return "MA Cross";
       case OPT_RSI:         return "RSI";
       case OPT_PVP:         return "PVP";
-      case OPT_SUPERTREND:  return "SuperTrend";
+      case OPT_IAE:         return "IAE";
       case OPT_AMA_KAMA:    return "AMA/KAMA";
       case OPT_HEIKIN_ASHI: return "Heikin Ashi";
       case OPT_VWAP:        return "VWAP";
