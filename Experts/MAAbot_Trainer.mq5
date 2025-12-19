@@ -998,7 +998,7 @@ int SinalSCP() {
 //| SCP: Remover Tendência Linear (Detrending)                        |
 //| x_i = Price_i - (m·i + c)                                         |
 //+------------------------------------------------------------------+
-void SCP_RemoverTendenciaLinear(double &input[], double &output[], int size) {
+void SCP_RemoverTendenciaLinear(double &source[], double &dest[], int size) {
    // Calcular regressão linear y = mx + c
    double sum_x = 0.0;
    double sum_y = 0.0;
@@ -1007,8 +1007,8 @@ void SCP_RemoverTendenciaLinear(double &input[], double &output[], int size) {
 
    for(int i = 0; i < size; i++) {
       sum_x += i;
-      sum_y += input[i];
-      sum_xy += i * input[i];
+      sum_y += source[i];
+      sum_xy += i * source[i];
       sum_x2 += i * i;
    }
 
@@ -1025,7 +1025,7 @@ void SCP_RemoverTendenciaLinear(double &input[], double &output[], int size) {
 
    // Remover tendência: x_i = Price_i - (m·i + c)
    for(int i = 0; i < size; i++) {
-      output[i] = input[i] - (m * i + c);
+      dest[i] = source[i] - (m * i + c);
    }
 }
 
@@ -1033,13 +1033,13 @@ void SCP_RemoverTendenciaLinear(double &input[], double &output[], int size) {
 //| SCP: Aplicar Janela de Hanning (Windowing)                        |
 //| w_i = 0.5 · (1 - cos(2πi/(N-1)))                                  |
 //+------------------------------------------------------------------+
-void SCP_AplicarHanningWindow(double &input[], double &output[], int size) {
+void SCP_AplicarHanningWindow(double &source[], double &dest[], int size) {
    for(int i = 0; i < size; i++) {
       // Calcular peso da janela Hanning
       double w_i = 0.5 * (1.0 - MathCos(2.0 * M_PI * i / (size - 1)));
 
       // Aplicar janela ao dado
-      output[i] = input[i] * w_i;
+      dest[i] = source[i] * w_i;
    }
 }
 
