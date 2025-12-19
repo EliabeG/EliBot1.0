@@ -23,7 +23,7 @@
 enum IndicadorParaOtimizar {
    OPT_MA_CROSS      = 0,  // 1. Cruzamento de Médias (MA Cross)
    OPT_RSI           = 1,  // 2. RSI
-   OPT_BOLLINGER     = 2,  // 3. Bandas de Bollinger
+   OPT_PVP           = 2,  // 3. PVP (Polynomial Velocity Predictor)
    OPT_SUPERTREND    = 3,  // 4. SuperTrend
    OPT_AMA_KAMA      = 4,  // 5. AMA/KAMA
    OPT_HEIKIN_ASHI   = 5,  // 6. Heikin Ashi
@@ -65,11 +65,13 @@ input int      RSI_Sobrevendido       = 30;            // Nível Sobrevendido (C
 input int      RSI_Sobrecomprado      = 70;            // Nível Sobrecomprado (VENDA)
 
 //╔══════════════════════════════════════════════════════════════════╗
-//║          PARÂMETROS DO INDICADOR 3: BOLLINGER                    ║
+//║          PARÂMETROS DO INDICADOR 3: PVP                          ║
 //╚══════════════════════════════════════════════════════════════════╝
-input group "══════ 3. BOLLINGER BANDS ══════"
-input int      BB_Period              = 20;            // Período
-input double   BB_Desvio              = 2.0;           // Desvio Padrão
+input group "══════ 3. PVP - Polynomial Velocity Predictor ══════"
+input int      PVP_LookbackPeriod     = 50;            // Período de Lookback (n velas)
+input double   PVP_Sensitivity        = 1.5;           // Constante de Sensibilidade (k)
+input double   PVP_ProbBuyThresh      = 0.75;          // Limiar Prob. Compra (0.75 = 75%)
+input double   PVP_ProbSellThresh     = 0.25;          // Limiar Prob. Venda (0.25 = 25%)
 
 //╔══════════════════════════════════════════════════════════════════╗
 //║          PARÂMETROS DO INDICADOR 4: SUPERTREND                   ║
@@ -122,13 +124,18 @@ CTrade trade;
 int hEMAfast = INVALID_HANDLE;
 int hEMAslow = INVALID_HANDLE;
 int hRSI = INVALID_HANDLE;
-int hBB = INVALID_HANDLE;
 int hATR = INVALID_HANDLE;
 
 // Variáveis de estado
 int g_sinalAtual = 0;       // +1 = COMPRA, -1 = VENDA, 0 = NEUTRO
 int g_sinalAnterior = 0;
 datetime g_lastBarTime = 0;
+
+// Variáveis PVP (Polynomial Velocity Predictor)
+double g_pvp_coef_a, g_pvp_coef_b, g_pvp_coef_c, g_pvp_coef_d;  // Coeficientes polinômio
+double g_pvp_velocidade, g_pvp_aceleracao;                       // Derivadas
+double g_pvp_prob_alta;                                          // Probabilidade de alta
+double g_pvp_sigma_err;                                          // Desvio padrão dos erros
 
 //+------------------------------------------------------------------+
 //|                        OnInit                                     |
@@ -162,7 +169,6 @@ void OnDeinit(const int reason) {
    if(hEMAfast != INVALID_HANDLE) IndicatorRelease(hEMAfast);
    if(hEMAslow != INVALID_HANDLE) IndicatorRelease(hEMAslow);
    if(hRSI != INVALID_HANDLE) IndicatorRelease(hRSI);
-   if(hBB != INVALID_HANDLE) IndicatorRelease(hBB);
    if(hATR != INVALID_HANDLE) IndicatorRelease(hATR);
 
    Print("═══════════════════════════════════════════════════════════");
@@ -223,9 +229,9 @@ bool InicializarIndicadores() {
          hRSI = iRSI(InpSymbol, InpTF, RSI_Period, PRICE_CLOSE);
          return (hRSI != INVALID_HANDLE);
 
-      case OPT_BOLLINGER:
-         hBB = iBands(InpSymbol, InpTF, BB_Period, 0, BB_Desvio, PRICE_CLOSE);
-         return (hBB != INVALID_HANDLE);
+      case OPT_PVP:
+         // PVP é calculado manualmente (regressão polinomial)
+         return true;
 
       case OPT_SUPERTREND:
          hATR = iATR(InpSymbol, InpTF, ST_ATR_Period);
@@ -261,7 +267,7 @@ int ObterSinalIndicador() {
    switch(Indicador) {
       case OPT_MA_CROSS:    return SinalMACross();
       case OPT_RSI:         return SinalRSI();
-      case OPT_BOLLINGER:   return SinalBollinger();
+      case OPT_PVP:         return SinalPVP();
       case OPT_SUPERTREND:  return SinalSupertrend();
       case OPT_AMA_KAMA:    return SinalAMAKAMA();
       case OPT_HEIKIN_ASHI: return SinalHeikinAshi();
@@ -311,26 +317,251 @@ int SinalRSI() {
 }
 
 //+------------------------------------------------------------------+
-//|              3. SINAL BOLLINGER BANDS                             |
+//|              3. SINAL PVP (Polynomial Velocity Predictor)         |
 //+------------------------------------------------------------------+
-int SinalBollinger() {
-   double upper[], middle[], lower[];
-   ArraySetAsSeries(upper, true);
-   ArraySetAsSeries(middle, true);
-   ArraySetAsSeries(lower, true);
+int SinalPVP() {
+   // Verificar dados suficientes
+   if(Bars(InpSymbol, InpTF) < PVP_LookbackPeriod + 1) return 0;
 
-   if(CopyBuffer(hBB, 0, 0, 3, middle) < 3) return 0;
-   if(CopyBuffer(hBB, 1, 0, 3, upper) < 3) return 0;
-   if(CopyBuffer(hBB, 2, 0, 3, lower) < 3) return 0;
+   // Extrair dados para regressão (últimas n velas)
+   double precos[];
+   ArrayResize(precos, PVP_LookbackPeriod);
 
-   double close = iClose(InpSymbol, InpTF, 1);
+   for(int j = 0; j < PVP_LookbackPeriod; j++) {
+      precos[j] = iClose(InpSymbol, InpTF, PVP_LookbackPeriod - j);
+   }
 
-   // Preço abaixo da banda inferior = COMPRA
-   if(close < lower[1]) return +1;
-   // Preço acima da banda superior = VENDA
-   if(close > upper[1]) return -1;
+   // Realizar regressão polinomial cúbica
+   if(!PVP_RegressaoPolinomialCubica(precos, PVP_LookbackPeriod))
+      return 0;
+
+   // Calcular desvio padrão dos erros
+   g_pvp_sigma_err = PVP_CalcularSigmaErro(precos, PVP_LookbackPeriod);
+
+   // Ponto atual
+   double t_atual = (double)(PVP_LookbackPeriod - 1);
+
+   // Calcular velocidade e aceleração
+   g_pvp_velocidade = PVP_CalcularVelocidade(t_atual);
+   g_pvp_aceleracao = PVP_CalcularAceleracao(t_atual);
+
+   // Calcular preço previsto para t+1
+   double t_proximo = t_atual + 1.0;
+   double preco_previsto = PVP_CalcularP(t_proximo);
+
+   // Calcular probabilidade de alta
+   g_pvp_prob_alta = PVP_CalcularProbabilidadeAlta(g_pvp_velocidade, g_pvp_sigma_err);
+
+   // Calcular suporte/resistência dinâmicos
+   double suporte_dinamico = preco_previsto - 2.0 * g_pvp_sigma_err;
+   double resistencia_dinamica = preco_previsto + 2.0 * g_pvp_sigma_err;
+
+   double preco_atual = iClose(InpSymbol, InpTF, 1);
+
+   // Sinal de COMPRA
+   if(g_pvp_velocidade > 0 &&
+      g_pvp_aceleracao > 0 &&
+      g_pvp_prob_alta > PVP_ProbBuyThresh &&
+      preco_atual > suporte_dinamico) {
+      return +1;
+   }
+
+   // Sinal de VENDA
+   if(g_pvp_velocidade < 0 &&
+      g_pvp_aceleracao < 0 &&
+      g_pvp_prob_alta < PVP_ProbSellThresh &&
+      preco_atual < resistencia_dinamica) {
+      return -1;
+   }
+
+   // Persistência: manter sinal enquanto velocidade mantiver mesmo sinal
+   if(g_sinalAnterior == 1 && g_pvp_velocidade > 0) return +1;
+   if(g_sinalAnterior == -1 && g_pvp_velocidade < 0) return -1;
 
    return 0;
+}
+
+//+------------------------------------------------------------------+
+//| PVP: Regressão Polinomial Cúbica usando Mínimos Quadrados        |
+//| P(t) = at³ + bt² + ct + d                                        |
+//+------------------------------------------------------------------+
+bool PVP_RegressaoPolinomialCubica(double &precos[], int n) {
+   // Construir Matriz de Vandermonde X (n x 4)
+   double X[][4];
+   ArrayResize(X, n);
+
+   for(int i = 0; i < n; i++) {
+      double t = (double)i;
+      X[i][0] = t * t * t;  // t³
+      X[i][1] = t * t;      // t²
+      X[i][2] = t;          // t
+      X[i][3] = 1.0;        // 1
+   }
+
+   // Calcular X^T X (4 x 4)
+   double XTX[4][4];
+   for(int i = 0; i < 4; i++) {
+      for(int j = 0; j < 4; j++) {
+         XTX[i][j] = 0.0;
+         for(int k = 0; k < n; k++) {
+            XTX[i][j] += X[k][i] * X[k][j];
+         }
+      }
+   }
+
+   // Calcular X^T Y (4 x 1)
+   double XTY[4];
+   for(int i = 0; i < 4; i++) {
+      XTY[i] = 0.0;
+      for(int k = 0; k < n; k++) {
+         XTY[i] += X[k][i] * precos[k];
+      }
+   }
+
+   // Calcular (X^T X)^(-1) usando Gauss-Jordan
+   double XTX_inv[4][4];
+   if(!PVP_InverterMatriz4x4(XTX, XTX_inv))
+      return false;
+
+   // Calcular β = (X^T X)^(-1) X^T Y
+   double beta[4];
+   for(int i = 0; i < 4; i++) {
+      beta[i] = 0.0;
+      for(int j = 0; j < 4; j++) {
+         beta[i] += XTX_inv[i][j] * XTY[j];
+      }
+   }
+
+   // Armazenar coeficientes [a, b, c, d]
+   g_pvp_coef_a = beta[0];
+   g_pvp_coef_b = beta[1];
+   g_pvp_coef_c = beta[2];
+   g_pvp_coef_d = beta[3];
+
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//| PVP: Inverter Matriz 4x4 usando Gauss-Jordan                     |
+//+------------------------------------------------------------------+
+bool PVP_InverterMatriz4x4(double &A[4][4], double &A_inv[4][4]) {
+   // Criar matriz aumentada [A | I]
+   double aug[4][8];
+
+   for(int i = 0; i < 4; i++) {
+      for(int j = 0; j < 4; j++) {
+         aug[i][j] = A[i][j];
+         aug[i][j + 4] = (i == j) ? 1.0 : 0.0;
+      }
+   }
+
+   // Eliminação de Gauss-Jordan
+   for(int col = 0; col < 4; col++) {
+      // Encontrar pivô
+      int max_row = col;
+      double max_val = MathAbs(aug[col][col]);
+
+      for(int row = col + 1; row < 4; row++) {
+         if(MathAbs(aug[row][col]) > max_val) {
+            max_val = MathAbs(aug[row][col]);
+            max_row = row;
+         }
+      }
+
+      // Verificar singularidade
+      if(max_val < 1e-10)
+         return false;
+
+      // Trocar linhas
+      if(max_row != col) {
+         for(int j = 0; j < 8; j++) {
+            double temp = aug[col][j];
+            aug[col][j] = aug[max_row][j];
+            aug[max_row][j] = temp;
+         }
+      }
+
+      // Normalizar linha do pivô
+      double pivot = aug[col][col];
+      for(int j = 0; j < 8; j++) {
+         aug[col][j] /= pivot;
+      }
+
+      // Eliminar outras linhas
+      for(int row = 0; row < 4; row++) {
+         if(row != col) {
+            double factor = aug[row][col];
+            for(int j = 0; j < 8; j++) {
+               aug[row][j] -= factor * aug[col][j];
+            }
+         }
+      }
+   }
+
+   // Extrair matriz inversa
+   for(int i = 0; i < 4; i++) {
+      for(int j = 0; j < 4; j++) {
+         A_inv[i][j] = aug[i][j + 4];
+      }
+   }
+
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//| PVP: Calcular P(t) = at³ + bt² + ct + d                          |
+//+------------------------------------------------------------------+
+double PVP_CalcularP(double t) {
+   return g_pvp_coef_a * t * t * t + g_pvp_coef_b * t * t + g_pvp_coef_c * t + g_pvp_coef_d;
+}
+
+//+------------------------------------------------------------------+
+//| PVP: Calcular Velocidade v(t) = P'(t) = 3at² + 2bt + c           |
+//+------------------------------------------------------------------+
+double PVP_CalcularVelocidade(double t) {
+   return 3.0 * g_pvp_coef_a * t * t + 2.0 * g_pvp_coef_b * t + g_pvp_coef_c;
+}
+
+//+------------------------------------------------------------------+
+//| PVP: Calcular Aceleração a(t) = P''(t) = 6at + 2b                |
+//+------------------------------------------------------------------+
+double PVP_CalcularAceleracao(double t) {
+   return 6.0 * g_pvp_coef_a * t + 2.0 * g_pvp_coef_b;
+}
+
+//+------------------------------------------------------------------+
+//| PVP: Calcular Desvio Padrão dos Erros (sigma_err)                |
+//+------------------------------------------------------------------+
+double PVP_CalcularSigmaErro(double &precos[], int n) {
+   double soma_erro_quad = 0.0;
+
+   for(int i = 0; i < n; i++) {
+      double t = (double)i;
+      double p_estimado = PVP_CalcularP(t);
+      double erro = precos[i] - p_estimado;
+      soma_erro_quad += erro * erro;
+   }
+
+   double mse = soma_erro_quad / (double)n;
+   return MathSqrt(mse);
+}
+
+//+------------------------------------------------------------------+
+//| PVP: Calcular Probabilidade de Alta (Sigmoide Modificada)        |
+//| Prob_alta = 1 / (1 + e^(-k * v(t) / sigma_err))                  |
+//+------------------------------------------------------------------+
+double PVP_CalcularProbabilidadeAlta(double velocidade, double sigma_err) {
+   if(sigma_err < 1e-10)
+      sigma_err = 1e-10;
+
+   double z = velocidade / sigma_err;
+   double expoente = -PVP_Sensitivity * z;
+
+   // Limitar expoente para evitar overflow
+   if(expoente > 700) return 0.0;
+   if(expoente < -700) return 1.0;
+
+   return 1.0 / (1.0 + MathExp(expoente));
 }
 
 //+------------------------------------------------------------------+
@@ -612,7 +843,7 @@ string GetIndicadorNome() {
    switch(Indicador) {
       case OPT_MA_CROSS:    return "MA Cross";
       case OPT_RSI:         return "RSI";
-      case OPT_BOLLINGER:   return "Bollinger";
+      case OPT_PVP:         return "PVP";
       case OPT_SUPERTREND:  return "SuperTrend";
       case OPT_AMA_KAMA:    return "AMA/KAMA";
       case OPT_HEIKIN_ASHI: return "Heikin Ashi";
