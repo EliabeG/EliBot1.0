@@ -354,15 +354,22 @@ int SinalEWGC() {
 
    double preco_atual = close[1];
 
-   //=== D. LÓGICA DE SINALIZAÇÃO (Reversão à Média - Simplificada) ===
+   //=== D. LÓGICA DE SINALIZAÇÃO ===
+   // Nota: Se entropia > ChaosThreshold, já retornamos 0 acima
 
-   // Sinal de COMPRA: preço toca banda inferior + entropia baixa
-   if(preco_atual <= bandaInferior && g_ewgc_entropia < EWGC_ChaosThreshold) {
+   // Modo "Sniper": entropia muito baixa = mercado muito ordenado = sinais mais confiáveis
+   bool modoSniper = (g_ewgc_entropia < EWGC_SniperThreshold);
+
+   // Sinal de COMPRA: preço toca/cruza banda inferior
+   // Em modo sniper, aceita preço próximo da banda (dentro de 20% da largura)
+   double margemSniper = modoSniper ? g_ewgc_largura_canal * 0.2 : 0;
+
+   if(preco_atual <= bandaInferior + margemSniper) {
       return +1;
    }
 
-   // Sinal de VENDA: preço toca banda superior + entropia baixa
-   if(preco_atual >= bandaSuperior && g_ewgc_entropia < EWGC_ChaosThreshold) {
+   // Sinal de VENDA: preço toca/cruza banda superior
+   if(preco_atual >= bandaSuperior - margemSniper) {
       return -1;
    }
 
