@@ -25,7 +25,7 @@ enum IndicadorParaOtimizar {
    OPT_RSI           = 1,  // 2. RSI
    OPT_PVP           = 2,  // 3. PVP (Polynomial Velocity Predictor)
    OPT_IAE           = 3,  // 4. IAE (Integral Arc Efficiency)
-   OPT_AMA_KAMA      = 4,  // 5. AMA/KAMA
+   OPT_SCP           = 4,  // 5. SCP (Spectral Cycle Phaser)
    OPT_HEIKIN_ASHI   = 5,  // 6. Heikin Ashi
    OPT_VWAP          = 6,  // 7. VWAP
    OPT_MOMENTUM      = 7,  // 8. Momentum (ROC)
@@ -87,12 +87,14 @@ input int      IAE_StdDevPeriod       = 20;            // Período para Desvio P
 input double   IAE_StdDevMult         = 2.0;           // Multiplicador do Desvio Padrão
 
 //╔══════════════════════════════════════════════════════════════════╗
-//║          PARÂMETROS DO INDICADOR 5: AMA/KAMA                     ║
+//║          PARÂMETROS DO INDICADOR 5: SCP (Spectral Cycle Phaser)  ║
 //╚══════════════════════════════════════════════════════════════════╝
-input group "══════ 5. AMA/KAMA - Média Adaptativa ══════"
-input int      AMA_ER_Period          = 10;            // Período ER
-input int      AMA_Fast               = 2;             // Constante Rápida
-input int      AMA_Slow               = 30;            // Constante Lenta
+input group "══════ 5. SCP - Spectral Cycle Phaser (Fourier) ══════"
+input int      SCP_WindowSize         = 64;            // Tamanho da Janela (N) para DFT
+input int      SCP_MinPeriod          = 10;            // Período Mínimo do Ciclo (T min)
+input int      SCP_MaxPeriod          = 60;            // Período Máximo do Ciclo (T max)
+input double   SCP_SignalThreshold    = 0.8;           // Limiar para Sinal (-0.8/+0.8)
+input int      SCP_PowerMAPeriod      = 10;            // Período da Média de Power
 
 //╔══════════════════════════════════════════════════════════════════╗
 //║          PARÂMETROS DO INDICADOR 6: HEIKIN ASHI                  ║
@@ -155,6 +157,16 @@ double g_iae_eficiencia;         // η - Coeficiente de Eficiência
 double g_iae_energia;            // Energia Integral
 double g_iae_eficiencia_ant;     // Eficiência anterior (para filtro)
 
+// Variáveis SCP (Spectral Cycle Phaser)
+int    g_scp_ciclo_dominante;    // Período do ciclo dominante (T)
+double g_scp_power_dominante;    // Power do ciclo dominante
+double g_scp_fase_atual;         // Fase projetada para barra atual (radianos)
+double g_scp_senoide_atual;      // Valor da senoide sin(φ_atual)
+double g_scp_senoide_anterior;   // Valor anterior da senoide
+double g_scp_senoide_anterior2;  // Valor 2 barras atrás
+double g_scp_power_medio;        // Média do power
+double g_scp_power_buffer[];     // Buffer para cálculo de média
+
 //+------------------------------------------------------------------+
 //|                        OnInit                                     |
 //+------------------------------------------------------------------+
@@ -190,6 +202,17 @@ int OnInit() {
    g_iae_eficiencia = 0;
    g_iae_energia = 0;
    g_iae_eficiencia_ant = 0;
+
+   // Reset SCP
+   g_scp_ciclo_dominante = SCP_MinPeriod;
+   g_scp_power_dominante = 0;
+   g_scp_fase_atual = 0;
+   g_scp_senoide_atual = 0;
+   g_scp_senoide_anterior = 0;
+   g_scp_senoide_anterior2 = 0;
+   g_scp_power_medio = 0;
+   ArrayResize(g_scp_power_buffer, SCP_PowerMAPeriod);
+   ArrayInitialize(g_scp_power_buffer, 0);
 
    Print("═══════════════════════════════════════════════════════════");
    Print("      MAAbot TREINADOR - Otimização de Indicadores");
@@ -281,8 +304,8 @@ bool InicializarIndicadores() {
          hEMA_IAE = iMA(InpSymbol, InpTF, IAE_EMA_Period, 0, MODE_EMA, PRICE_CLOSE);
          return (hEMA_IAE != INVALID_HANDLE);
 
-      case OPT_AMA_KAMA:
-         // KAMA é calculado manualmente
+      case OPT_SCP:
+         // SCP é calculado manualmente (DFT)
          return true;
 
       case OPT_HEIKIN_ASHI:
@@ -313,7 +336,7 @@ int ObterSinalIndicador() {
       case OPT_RSI:         return SinalRSI();
       case OPT_PVP:         return SinalPVP();
       case OPT_IAE:         return SinalIAE();
-      case OPT_AMA_KAMA:    return SinalAMAKAMA();
+      case OPT_SCP:         return SinalSCP();
       case OPT_HEIKIN_ASHI: return SinalHeikinAshi();
       case OPT_VWAP:        return SinalVWAP();
       case OPT_MOMENTUM:    return SinalMomentum();
@@ -845,50 +868,217 @@ double IAE_CalcularEnergiaIntegral(double &price[], double &ema_buf[], int idx, 
 }
 
 //+------------------------------------------------------------------+
-//|              5. SINAL AMA/KAMA                                    |
+//|              5. SINAL SCP (Spectral Cycle Phaser - Fourier DFT)   |
 //+------------------------------------------------------------------+
-int SinalAMAKAMA() {
+int SinalSCP() {
+   int minBars = SCP_WindowSize + SCP_MaxPeriod + 2;
+   if(Bars(InpSymbol, InpTF) < minBars) return 0;
+
+   // Copiar dados
    double close[];
    ArraySetAsSeries(close, true);
+   if(CopyClose(InpSymbol, InpTF, 0, minBars, close) < minBars) return 0;
 
-   if(CopyClose(InpSymbol, InpTF, 0, AMA_ER_Period + AMA_Slow + 5, close) < AMA_ER_Period + AMA_Slow + 5) return 0;
+   //=== 1. PRÉ-PROCESSAMENTO (LIMPEZA DE SINAL) ===
 
-   int n = ArraySize(close);
-   double kama = CalcularKAMA(close, n, AMA_ER_Period, AMA_Fast, AMA_Slow, 1);
-   double kama_prev = CalcularKAMA(close, n, AMA_ER_Period, AMA_Fast, AMA_Slow, 2);
+   // Extrair janela de preços
+   double precos_raw[];
+   ArrayResize(precos_raw, SCP_WindowSize);
 
-   double slope = kama - kama_prev;
+   for(int j = 0; j < SCP_WindowSize; j++) {
+      precos_raw[j] = close[SCP_WindowSize - j];  // Ordenar do mais antigo ao mais recente
+   }
 
-   // KAMA subindo e preço acima = COMPRA
-   if(slope > 0 && close[1] > kama) return +1;
-   // KAMA descendo e preço abaixo = VENDA
-   if(slope < 0 && close[1] < kama) return -1;
+   // A. Detrending (Remoção de Tendência Linear)
+   double precos_detrend[];
+   ArrayResize(precos_detrend, SCP_WindowSize);
+   SCP_RemoverTendenciaLinear(precos_raw, precos_detrend, SCP_WindowSize);
+
+   // B. Janelamento (Hanning Window)
+   double input_fourier[];
+   ArrayResize(input_fourier, SCP_WindowSize);
+   SCP_AplicarHanningWindow(precos_detrend, input_fourier, SCP_WindowSize);
+
+   //=== 2. MOTOR MATEMÁTICO (DFT OTIMIZADA) ===
+   // Buscar ciclos na faixa de interesse (MinPeriod a MaxPeriod barras)
+
+   double max_power = 0.0;
+   int periodo_dominante = SCP_MinPeriod;
+   double fase_dominante = 0.0;
+
+   // Loop pelos períodos T de interesse
+   for(int T = SCP_MinPeriod; T <= SCP_MaxPeriod; T++) {
+      // Frequência angular: ω = 2π/T
+      double omega = 2.0 * M_PI / (double)T;
+
+      // Calcular componentes Real e Imaginária
+      double real_sum = 0.0;
+      double imag_sum = 0.0;
+
+      for(int n = 0; n < SCP_WindowSize; n++) {
+         double angle = omega * n;
+         real_sum += input_fourier[n] * MathCos(angle);
+         imag_sum += input_fourier[n] * MathSin(angle);
+      }
+
+      // Potência (Amplitude do Ciclo): Power_T = √(Real² + Imag²)
+      double power_T = MathSqrt(real_sum * real_sum + imag_sum * imag_sum);
+
+      // Verificar se é o ciclo dominante (maior power)
+      if(power_T > max_power) {
+         max_power = power_T;
+         periodo_dominante = T;
+
+         // Fase (Posição no Ciclo): φ_T = arctan(-Imag/Real)
+         fase_dominante = MathArctan2(-imag_sum, real_sum);
+      }
+   }
+
+   // Salvar resultados do ciclo dominante
+   g_scp_ciclo_dominante = periodo_dominante;
+   g_scp_power_dominante = max_power;
+
+   //=== 3. PREVISÃO DE FASE ===
+   // A fase retornada refere-se ao início da janela
+   // Projetar para a barra atual
+
+   double omega_dominante = 2.0 * M_PI / (double)g_scp_ciclo_dominante;
+
+   // φ_atual = φ_dominante + ω_dominante · N
+   g_scp_fase_atual = fase_dominante + omega_dominante * SCP_WindowSize;
+
+   // Normalizar para ficar entre -π e +π
+   g_scp_fase_atual = SCP_NormalizarFase(g_scp_fase_atual);
+
+   //=== 4. OSCILADOR SENOIDAL ===
+   // Atualizar histórico
+   g_scp_senoide_anterior2 = g_scp_senoide_anterior;
+   g_scp_senoide_anterior = g_scp_senoide_atual;
+   g_scp_senoide_atual = MathSin(g_scp_fase_atual);
+
+   // Atualizar buffer de power para média móvel
+   SCP_AtualizarPowerBuffer(g_scp_power_dominante);
+   g_scp_power_medio = SCP_CalcularMediaPower();
+
+   //=== 5. LÓGICA DE SINALIZAÇÃO ===
+   bool power_alto = (g_scp_power_dominante > g_scp_power_medio);
+
+   // Verificar se há histórico suficiente
+   if(g_scp_senoide_anterior == 0 && g_scp_senoide_anterior2 == 0) return 0;
+
+   // SINAL DE COMPRA
+   // Senoide no fundo (< -threshold) e virando para cima
+   bool fundo_ciclo = (g_scp_senoide_anterior < -SCP_SignalThreshold);
+   bool virando_cima = (g_scp_senoide_atual > g_scp_senoide_anterior &&
+                        g_scp_senoide_anterior <= g_scp_senoide_anterior2);
+
+   if(fundo_ciclo && virando_cima && power_alto) {
+      return +1;
+   }
+
+   // SINAL DE VENDA
+   // Senoide no topo (> threshold) e virando para baixo
+   bool topo_ciclo = (g_scp_senoide_anterior > SCP_SignalThreshold);
+   bool virando_baixo = (g_scp_senoide_atual < g_scp_senoide_anterior &&
+                         g_scp_senoide_anterior >= g_scp_senoide_anterior2);
+
+   if(topo_ciclo && virando_baixo && power_alto) {
+      return -1;
+   }
 
    return 0;
 }
 
-double CalcularKAMA(double &close[], int n, int erPeriod, int fast, int slow, int shift) {
-   if(n < erPeriod + slow + shift) return close[shift];
+//+------------------------------------------------------------------+
+//| SCP: Remover Tendência Linear (Detrending)                        |
+//| x_i = Price_i - (m·i + c)                                         |
+//+------------------------------------------------------------------+
+void SCP_RemoverTendenciaLinear(double &input[], double &output[], int size) {
+   // Calcular regressão linear y = mx + c
+   double sum_x = 0.0;
+   double sum_y = 0.0;
+   double sum_xy = 0.0;
+   double sum_x2 = 0.0;
 
-   // Efficiency Ratio
-   double change = MathAbs(close[shift] - close[shift + erPeriod]);
-   double volatility = 0;
-   for(int i = shift; i < shift + erPeriod; i++) {
-      volatility += MathAbs(close[i] - close[i + 1]);
+   for(int i = 0; i < size; i++) {
+      sum_x += i;
+      sum_y += input[i];
+      sum_xy += i * input[i];
+      sum_x2 += i * i;
    }
-   double er = (volatility > 0) ? change / volatility : 0;
 
-   // Smoothing Constant
-   double fastSC = 2.0 / (fast + 1);
-   double slowSC = 2.0 / (slow + 1);
-   double sc = MathPow(er * (fastSC - slowSC) + slowSC, 2);
+   double n = (double)size;
+   double denominador = (n * sum_x2 - sum_x * sum_x);
 
-   // KAMA
-   static double kama = 0;
-   if(kama == 0) kama = close[shift + erPeriod];
-   kama = kama + sc * (close[shift] - kama);
+   double m = 0.0;  // Inclinação
+   double c = 0.0;  // Intercepto
 
-   return kama;
+   if(MathAbs(denominador) > 1e-10) {
+      m = (n * sum_xy - sum_x * sum_y) / denominador;
+      c = (sum_y - m * sum_x) / n;
+   }
+
+   // Remover tendência: x_i = Price_i - (m·i + c)
+   for(int i = 0; i < size; i++) {
+      output[i] = input[i] - (m * i + c);
+   }
+}
+
+//+------------------------------------------------------------------+
+//| SCP: Aplicar Janela de Hanning (Windowing)                        |
+//| w_i = 0.5 · (1 - cos(2πi/(N-1)))                                  |
+//+------------------------------------------------------------------+
+void SCP_AplicarHanningWindow(double &input[], double &output[], int size) {
+   for(int i = 0; i < size; i++) {
+      // Calcular peso da janela Hanning
+      double w_i = 0.5 * (1.0 - MathCos(2.0 * M_PI * i / (size - 1)));
+
+      // Aplicar janela ao dado
+      output[i] = input[i] * w_i;
+   }
+}
+
+//+------------------------------------------------------------------+
+//| SCP: Normalizar Fase para ficar entre -π e +π                     |
+//+------------------------------------------------------------------+
+double SCP_NormalizarFase(double fase) {
+   while(fase > M_PI)
+      fase -= 2.0 * M_PI;
+
+   while(fase < -M_PI)
+      fase += 2.0 * M_PI;
+
+   return fase;
+}
+
+//+------------------------------------------------------------------+
+//| SCP: Atualizar Buffer de Power (circular)                         |
+//+------------------------------------------------------------------+
+void SCP_AtualizarPowerBuffer(double power) {
+   // Deslocar valores
+   for(int i = SCP_PowerMAPeriod - 1; i > 0; i--) {
+      g_scp_power_buffer[i] = g_scp_power_buffer[i - 1];
+   }
+   g_scp_power_buffer[0] = power;
+}
+
+//+------------------------------------------------------------------+
+//| SCP: Calcular Média do Power                                      |
+//+------------------------------------------------------------------+
+double SCP_CalcularMediaPower() {
+   double soma = 0.0;
+   int count = 0;
+
+   for(int i = 0; i < SCP_PowerMAPeriod; i++) {
+      if(g_scp_power_buffer[i] > 0) {
+         soma += g_scp_power_buffer[i];
+         count++;
+      }
+   }
+
+   if(count > 0)
+      return soma / count;
+   return 0;
 }
 
 //+------------------------------------------------------------------+
@@ -1094,7 +1284,7 @@ string GetIndicadorNome() {
       case OPT_RSI:         return "RSI";
       case OPT_PVP:         return "PVP";
       case OPT_IAE:         return "IAE";
-      case OPT_AMA_KAMA:    return "AMA/KAMA";
+      case OPT_SCP:         return "SCP";
       case OPT_HEIKIN_ASHI: return "Heikin Ashi";
       case OPT_VWAP:        return "VWAP";
       case OPT_MOMENTUM:    return "Momentum";
