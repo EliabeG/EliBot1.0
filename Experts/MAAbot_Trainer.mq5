@@ -398,13 +398,13 @@ bool PVP_RegressaoPolinomialCubica(double &precos[], int n) {
       X[i][3] = 1.0;        // 1
    }
 
-   // Calcular X^T X (4 x 4)
-   double XTX[4][4];
+   // Calcular X^T X (4 x 4) usando array 1D (índice = i*4 + j)
+   double XTX[16];  // 4x4 em 1D
    for(int i = 0; i < 4; i++) {
       for(int j = 0; j < 4; j++) {
-         XTX[i][j] = 0.0;
+         XTX[i*4 + j] = 0.0;
          for(int k = 0; k < n; k++) {
-            XTX[i][j] += X[k][i] * X[k][j];
+            XTX[i*4 + j] += X[k][i] * X[k][j];
          }
       }
    }
@@ -419,7 +419,7 @@ bool PVP_RegressaoPolinomialCubica(double &precos[], int n) {
    }
 
    // Calcular (X^T X)^(-1) usando Gauss-Jordan
-   double XTX_inv[4][4];
+   double XTX_inv[16];  // 4x4 em 1D
    if(!PVP_InverterMatriz4x4(XTX, XTX_inv))
       return false;
 
@@ -428,7 +428,7 @@ bool PVP_RegressaoPolinomialCubica(double &precos[], int n) {
    for(int i = 0; i < 4; i++) {
       beta[i] = 0.0;
       for(int j = 0; j < 4; j++) {
-         beta[i] += XTX_inv[i][j] * XTY[j];
+         beta[i] += XTX_inv[i*4 + j] * XTY[j];
       }
    }
 
@@ -442,16 +442,17 @@ bool PVP_RegressaoPolinomialCubica(double &precos[], int n) {
 }
 
 //+------------------------------------------------------------------+
-//| PVP: Inverter Matriz 4x4 usando Gauss-Jordan                     |
+//| PVP: Inverter Matriz 4x4 usando Gauss-Jordan (arrays 1D)         |
+//| A e A_inv são arrays 1D de 16 elementos (índice = row*4 + col)   |
 //+------------------------------------------------------------------+
-bool PVP_InverterMatriz4x4(double &A[4][4], double &A_inv[4][4]) {
-   // Criar matriz aumentada [A | I]
-   double aug[4][8];
+bool PVP_InverterMatriz4x4(double &A[], double &A_inv[]) {
+   // Criar matriz aumentada [A | I] em 1D (4x8 = 32 elementos)
+   double aug[32];
 
    for(int i = 0; i < 4; i++) {
       for(int j = 0; j < 4; j++) {
-         aug[i][j] = A[i][j];
-         aug[i][j + 4] = (i == j) ? 1.0 : 0.0;
+         aug[i*8 + j] = A[i*4 + j];
+         aug[i*8 + j + 4] = (i == j) ? 1.0 : 0.0;
       }
    }
 
@@ -459,11 +460,11 @@ bool PVP_InverterMatriz4x4(double &A[4][4], double &A_inv[4][4]) {
    for(int col = 0; col < 4; col++) {
       // Encontrar pivô
       int max_row = col;
-      double max_val = MathAbs(aug[col][col]);
+      double max_val = MathAbs(aug[col*8 + col]);
 
       for(int row = col + 1; row < 4; row++) {
-         if(MathAbs(aug[row][col]) > max_val) {
-            max_val = MathAbs(aug[row][col]);
+         if(MathAbs(aug[row*8 + col]) > max_val) {
+            max_val = MathAbs(aug[row*8 + col]);
             max_row = row;
          }
       }
@@ -475,24 +476,24 @@ bool PVP_InverterMatriz4x4(double &A[4][4], double &A_inv[4][4]) {
       // Trocar linhas
       if(max_row != col) {
          for(int j = 0; j < 8; j++) {
-            double temp = aug[col][j];
-            aug[col][j] = aug[max_row][j];
-            aug[max_row][j] = temp;
+            double temp = aug[col*8 + j];
+            aug[col*8 + j] = aug[max_row*8 + j];
+            aug[max_row*8 + j] = temp;
          }
       }
 
       // Normalizar linha do pivô
-      double pivot = aug[col][col];
+      double pivot = aug[col*8 + col];
       for(int j = 0; j < 8; j++) {
-         aug[col][j] /= pivot;
+         aug[col*8 + j] /= pivot;
       }
 
       // Eliminar outras linhas
       for(int row = 0; row < 4; row++) {
          if(row != col) {
-            double factor = aug[row][col];
+            double factor = aug[row*8 + col];
             for(int j = 0; j < 8; j++) {
-               aug[row][j] -= factor * aug[col][j];
+               aug[row*8 + j] -= factor * aug[col*8 + j];
             }
          }
       }
@@ -501,7 +502,7 @@ bool PVP_InverterMatriz4x4(double &A[4][4], double &A_inv[4][4]) {
    // Extrair matriz inversa
    for(int i = 0; i < 4; i++) {
       for(int j = 0; j < 4; j++) {
-         A_inv[i][j] = aug[i][j + 4];
+         A_inv[i*4 + j] = aug[i*8 + j + 4];
       }
    }
 
