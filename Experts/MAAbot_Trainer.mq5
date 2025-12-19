@@ -21,7 +21,7 @@
 //║                    SELEÇÃO DO INDICADOR                          ║
 //╚══════════════════════════════════════════════════════════════════╝
 enum IndicadorParaOtimizar {
-   OPT_MA_CROSS      = 0,  // 1. Cruzamento de Médias (MA Cross)
+   OPT_EWGC          = 0,  // 1. EWGC (Entropy-Weighted Gaussian Channel)
    OPT_RSI           = 1,  // 2. RSI
    OPT_PVP           = 2,  // 3. PVP (Polynomial Velocity Predictor)
    OPT_IAE           = 3,  // 4. IAE (Integral Arc Efficiency)
@@ -36,7 +36,7 @@ enum IndicadorParaOtimizar {
 //║                    CONFIGURAÇÕES BÁSICAS                         ║
 //╚══════════════════════════════════════════════════════════════════╝
 input group "══════ CONFIGURAÇÃO DO TREINADOR ══════"
-input IndicadorParaOtimizar Indicador = OPT_MA_CROSS;  // ████ INDICADOR PARA OTIMIZAR ████
+input IndicadorParaOtimizar Indicador = OPT_EWGC;  // ████ INDICADOR PARA OTIMIZAR ████
 input string   InpSymbol              = "XAUUSD";      // Símbolo
 input ENUM_TIMEFRAMES InpTF           = PERIOD_M15;    // Tempo Gráfico
 
@@ -49,12 +49,14 @@ input double   LoteFixo               = 0.01;          // Lote Fixo
 input long     MagicNumber            = 99999;         // Número Mágico
 
 //╔══════════════════════════════════════════════════════════════════╗
-//║          PARÂMETROS DO INDICADOR 1: MA CROSS                     ║
+//║          PARÂMETROS DO INDICADOR 1: EWGC                         ║
 //╚══════════════════════════════════════════════════════════════════╝
-input group "══════ 1. MA CROSS - Cruzamento de Médias ══════"
-input int      MA_Fast_Period         = 20;            // EMA Rápida (período)
-input int      MA_Slow_Period         = 50;            // EMA Lenta (período)
-input ENUM_MA_METHOD MA_Method        = MODE_EMA;      // Método da Média
+input group "══════ 1. EWGC - Entropy-Weighted Gaussian Channel ══════"
+input int      EWGC_Period            = 50;            // Período da Janela (n velas)
+input int      EWGC_Buckets           = 15;            // Número de Buckets (10-20)
+input double   EWGC_ExpansionFactor   = 2.0;           // Fator de Expansão do Canal
+input double   EWGC_ChaosThreshold    = 0.8;           // Limiar de Caos (H > valor = caótico)
+input double   EWGC_SniperThreshold   = 0.5;           // Limiar Sniper (H < valor = ordenado)
 
 //╔══════════════════════════════════════════════════════════════════╗
 //║          PARÂMETROS DO INDICADOR 2: RSI                          ║
@@ -125,8 +127,6 @@ input int      QQE_Smoothing          = 5;             // Suavização
 CTrade trade;
 
 // Handles dos indicadores
-int hEMAfast = INVALID_HANDLE;
-int hEMAslow = INVALID_HANDLE;
 int hRSI = INVALID_HANDLE;
 int hEMA_IAE = INVALID_HANDLE;   // EMA para IAE
 
@@ -134,6 +134,13 @@ int hEMA_IAE = INVALID_HANDLE;   // EMA para IAE
 int g_sinalAtual = 0;       // +1 = COMPRA, -1 = VENDA, 0 = NEUTRO
 int g_sinalAnterior = 0;
 datetime g_lastBarTime = 0;
+
+// Variáveis EWGC (Entropy-Weighted Gaussian Channel)
+double g_ewgc_entropia;          // Entropia normalizada H
+double g_ewgc_p_gaussian;        // Linha central gaussiana
+double g_ewgc_largura_canal;     // Largura do canal
+double g_ewgc_mad;               // Mean Absolute Deviation
+double g_ewgc_sigma_dinamico;    // Sigma dinâmico
 
 // Variáveis PVP (Polynomial Velocity Predictor)
 double g_pvp_coef_a, g_pvp_coef_b, g_pvp_coef_c, g_pvp_coef_d;  // Coeficientes polinômio
@@ -159,6 +166,13 @@ int OnInit() {
    g_sinalAtual = 0;
    g_sinalAnterior = 0;
    g_lastBarTime = 0;
+
+   // Reset EWGC
+   g_ewgc_entropia = 0;
+   g_ewgc_p_gaussian = 0;
+   g_ewgc_largura_canal = 0;
+   g_ewgc_mad = 0;
+   g_ewgc_sigma_dinamico = 0;
 
    // Reset PVP
    g_pvp_coef_a = 0;
@@ -199,8 +213,6 @@ int OnInit() {
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason) {
    // Libera handles
-   if(hEMAfast != INVALID_HANDLE) IndicatorRelease(hEMAfast);
-   if(hEMAslow != INVALID_HANDLE) IndicatorRelease(hEMAslow);
    if(hRSI != INVALID_HANDLE) IndicatorRelease(hRSI);
    if(hEMA_IAE != INVALID_HANDLE) IndicatorRelease(hEMA_IAE);
 
@@ -253,10 +265,9 @@ void OnTick() {
 //+------------------------------------------------------------------+
 bool InicializarIndicadores() {
    switch(Indicador) {
-      case OPT_MA_CROSS:
-         hEMAfast = iMA(InpSymbol, InpTF, MA_Fast_Period, 0, MA_Method, PRICE_CLOSE);
-         hEMAslow = iMA(InpSymbol, InpTF, MA_Slow_Period, 0, MA_Method, PRICE_CLOSE);
-         return (hEMAfast != INVALID_HANDLE && hEMAslow != INVALID_HANDLE);
+      case OPT_EWGC:
+         // EWGC é calculado manualmente (entropia + gaussiano)
+         return true;
 
       case OPT_RSI:
          hRSI = iRSI(InpSymbol, InpTF, RSI_Period, PRICE_CLOSE);
@@ -298,7 +309,7 @@ bool InicializarIndicadores() {
 //+------------------------------------------------------------------+
 int ObterSinalIndicador() {
    switch(Indicador) {
-      case OPT_MA_CROSS:    return SinalMACross();
+      case OPT_EWGC:        return SinalEWGC();
       case OPT_RSI:         return SinalRSI();
       case OPT_PVP:         return SinalPVP();
       case OPT_IAE:         return SinalIAE();
@@ -312,23 +323,150 @@ int ObterSinalIndicador() {
 }
 
 //+------------------------------------------------------------------+
-//|              1. SINAL MA CROSS                                    |
+//|              1. SINAL EWGC (Entropy-Weighted Gaussian Channel)    |
 //+------------------------------------------------------------------+
-int SinalMACross() {
-   double emaFast[], emaSlow[];
-   ArraySetAsSeries(emaFast, true);
-   ArraySetAsSeries(emaSlow, true);
+int SinalEWGC() {
+   if(Bars(InpSymbol, InpTF) < EWGC_Period + 2) return 0;
 
-   if(CopyBuffer(hEMAfast, 0, 0, 3, emaFast) < 3) return 0;
-   if(CopyBuffer(hEMAslow, 0, 0, 3, emaSlow) < 3) return 0;
+   // Copiar dados
+   double close[];
+   ArraySetAsSeries(close, true);
+   if(CopyClose(InpSymbol, InpTF, 0, EWGC_Period + 2, close) < EWGC_Period + 2) return 0;
 
-   double close = iClose(InpSymbol, InpTF, 1);
+   //=== A. CALCULAR ENTROPIA DE SHANNON NORMALIZADA ===
+   g_ewgc_entropia = EWGC_CalcularEntropiaNormalizada(close, 1, EWGC_Period, EWGC_Buckets);
 
-   // EMA rápida acima da lenta e preço acima da lenta = COMPRA
-   if(emaFast[1] > emaSlow[1] && close > emaSlow[1]) return +1;
-   // EMA rápida abaixo da lenta e preço abaixo da lenta = VENDA
-   if(emaFast[1] < emaSlow[1] && close < emaSlow[1]) return -1;
+   // Verificar se mercado está caótico - NÃO dar sinais
+   if(g_ewgc_entropia > EWGC_ChaosThreshold) return 0;
 
+   //=== B. CALCULAR SIGMA DINÂMICO E LINHA CENTRAL GAUSSIANA ===
+   g_ewgc_sigma_dinamico = EWGC_Period * (1.0 - g_ewgc_entropia);
+   if(g_ewgc_sigma_dinamico < 1.0) g_ewgc_sigma_dinamico = 1.0;
+
+   g_ewgc_p_gaussian = EWGC_CalcularMediaGaussiana(close, 1, EWGC_Period, g_ewgc_sigma_dinamico);
+
+   //=== C. CALCULAR CANAL DINÂMICO ===
+   g_ewgc_mad = EWGC_CalcularMAD(close, 1, EWGC_Period, g_ewgc_p_gaussian);
+   g_ewgc_largura_canal = g_ewgc_mad * (1.0 + g_ewgc_entropia * EWGC_ExpansionFactor);
+
+   double bandaSuperior = g_ewgc_p_gaussian + g_ewgc_largura_canal;
+   double bandaInferior = g_ewgc_p_gaussian - g_ewgc_largura_canal;
+
+   double preco_atual = close[1];
+
+   //=== D. LÓGICA DE SINALIZAÇÃO (Reversão à Média - Simplificada) ===
+
+   // Sinal de COMPRA: preço toca banda inferior + entropia baixa
+   if(preco_atual <= bandaInferior && g_ewgc_entropia < EWGC_ChaosThreshold) {
+      return +1;
+   }
+
+   // Sinal de VENDA: preço toca banda superior + entropia baixa
+   if(preco_atual >= bandaSuperior && g_ewgc_entropia < EWGC_ChaosThreshold) {
+      return -1;
+   }
+
+   return 0;
+}
+
+//+------------------------------------------------------------------+
+//| EWGC: Calcular Entropia de Shannon Normalizada                    |
+//+------------------------------------------------------------------+
+double EWGC_CalcularEntropiaNormalizada(double &price[], int idx, int period, int num_buckets) {
+   // Calcular retornos logarítmicos
+   double retornos[];
+   ArrayResize(retornos, period - 1);
+
+   double min_retorno = DBL_MAX;
+   double max_retorno = -DBL_MAX;
+
+   for(int j = 0; j < period - 1; j++) {
+      int current = idx + j;
+      int previous = current + 1;
+
+      if(price[previous] <= 0) {
+         retornos[j] = 0;
+         continue;
+      }
+
+      retornos[j] = MathLog(price[current] / price[previous]);
+
+      if(retornos[j] < min_retorno) min_retorno = retornos[j];
+      if(retornos[j] > max_retorno) max_retorno = retornos[j];
+   }
+
+   // Criar histograma de frequência
+   double range = max_retorno - min_retorno;
+   if(range < 1e-10) range = 1e-10;
+
+   double bucket_size = range / num_buckets;
+
+   int frequencias[];
+   ArrayResize(frequencias, num_buckets);
+   ArrayInitialize(frequencias, 0);
+
+   int total_retornos = period - 1;
+
+   for(int j = 0; j < total_retornos; j++) {
+      int bucket_idx = (int)MathFloor((retornos[j] - min_retorno) / bucket_size);
+      if(bucket_idx < 0) bucket_idx = 0;
+      if(bucket_idx >= num_buckets) bucket_idx = num_buckets - 1;
+      frequencias[bucket_idx]++;
+   }
+
+   // Calcular entropia H = -Σ p_k · ln(p_k)
+   double entropia = 0.0;
+   for(int k = 0; k < num_buckets; k++) {
+      if(frequencias[k] > 0) {
+         double p_k = (double)frequencias[k] / (double)total_retornos;
+         entropia -= p_k * MathLog(p_k);
+      }
+   }
+
+   // Normalizar H_norm = H / ln(N)
+   double entropia_maxima = MathLog((double)num_buckets);
+   if(entropia_maxima > 0)
+      return entropia / entropia_maxima;
+   return 0;
+}
+
+//+------------------------------------------------------------------+
+//| EWGC: Calcular Média Gaussiana Ponderada                          |
+//+------------------------------------------------------------------+
+double EWGC_CalcularMediaGaussiana(double &price[], int idx, int period, double sigma) {
+   double soma_ponderada = 0.0;
+   double soma_pesos = 0.0;
+
+   double sigma_sq_2 = 2.0 * sigma * sigma;
+   if(sigma_sq_2 < 1e-10) sigma_sq_2 = 1e-10;
+
+   for(int j = 0; j < period; j++) {
+      int current = idx + j;
+      double peso = MathExp(-(double)(j * j) / sigma_sq_2);
+      soma_ponderada += price[current] * peso;
+      soma_pesos += peso;
+   }
+
+   if(soma_pesos > 0)
+      return soma_ponderada / soma_pesos;
+   return price[idx];
+}
+
+//+------------------------------------------------------------------+
+//| EWGC: Calcular MAD (Mean Absolute Deviation)                      |
+//+------------------------------------------------------------------+
+double EWGC_CalcularMAD(double &price[], int idx, int period, double media) {
+   double soma_desvios = 0.0;
+   int count = 0;
+
+   for(int j = 0; j < period; j++) {
+      int current = idx + j;
+      soma_desvios += MathAbs(price[current] - media);
+      count++;
+   }
+
+   if(count > 0)
+      return soma_desvios / count;
    return 0;
 }
 
@@ -945,7 +1083,7 @@ void AbrirVenda() {
 
 string GetIndicadorNome() {
    switch(Indicador) {
-      case OPT_MA_CROSS:    return "MA Cross";
+      case OPT_EWGC:        return "EWGC";
       case OPT_RSI:         return "RSI";
       case OPT_PVP:         return "PVP";
       case OPT_IAE:         return "IAE";
