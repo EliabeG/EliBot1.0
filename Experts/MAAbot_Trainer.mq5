@@ -167,6 +167,11 @@ double g_scp_senoide_anterior2;  // Valor 2 barras atrás
 double g_scp_power_medio;        // Média do power
 double g_scp_power_buffer[];     // Buffer para cálculo de média
 
+// Constantes matemáticas
+#ifndef M_PI
+   #define M_PI 3.14159265358979323846
+#endif
+
 //+------------------------------------------------------------------+
 //|                        OnInit                                     |
 //+------------------------------------------------------------------+
