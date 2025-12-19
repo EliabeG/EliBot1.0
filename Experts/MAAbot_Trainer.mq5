@@ -21,22 +21,22 @@
 //║                    SELEÇÃO DO INDICADOR                          ║
 //╚══════════════════════════════════════════════════════════════════╝
 enum IndicadorParaOtimizar {
-   IND_MA_CROSS      = 0,  // 1. Cruzamento de Médias (MA Cross)
-   IND_RSI           = 1,  // 2. RSI
-   IND_BOLLINGER     = 2,  // 3. Bandas de Bollinger
-   IND_SUPERTREND    = 3,  // 4. SuperTrend
-   IND_AMA_KAMA      = 4,  // 5. AMA/KAMA
-   IND_HEIKIN_ASHI   = 5,  // 6. Heikin Ashi
-   IND_VWAP          = 6,  // 7. VWAP
-   IND_MOMENTUM      = 7,  // 8. Momentum (ROC)
-   IND_QQE           = 8   // 9. QQE
+   OPT_MA_CROSS      = 0,  // 1. Cruzamento de Médias (MA Cross)
+   OPT_RSI           = 1,  // 2. RSI
+   OPT_BOLLINGER     = 2,  // 3. Bandas de Bollinger
+   OPT_SUPERTREND    = 3,  // 4. SuperTrend
+   OPT_AMA_KAMA      = 4,  // 5. AMA/KAMA
+   OPT_HEIKIN_ASHI   = 5,  // 6. Heikin Ashi
+   OPT_VWAP          = 6,  // 7. VWAP
+   OPT_MOMENTUM      = 7,  // 8. Momentum (ROC)
+   OPT_QQE           = 8   // 9. QQE
 };
 
 //╔══════════════════════════════════════════════════════════════════╗
 //║                    CONFIGURAÇÕES BÁSICAS                         ║
 //╚══════════════════════════════════════════════════════════════════╝
 input group "══════ CONFIGURAÇÃO DO TREINADOR ══════"
-input IndicadorParaOtimizar Indicador = IND_MA_CROSS;  // ████ INDICADOR PARA OTIMIZAR ████
+input IndicadorParaOtimizar Indicador = OPT_MA_CROSS;  // ████ INDICADOR PARA OTIMIZAR ████
 input string   InpSymbol              = "XAUUSD";      // Símbolo
 input ENUM_TIMEFRAMES InpTF           = PERIOD_M15;    // Tempo Gráfico
 
@@ -214,40 +214,40 @@ void OnTick() {
 //+------------------------------------------------------------------+
 bool InicializarIndicadores() {
    switch(Indicador) {
-      case IND_MA_CROSS:
+      case OPT_MA_CROSS:
          hEMAfast = iMA(InpSymbol, InpTF, MA_Fast_Period, 0, MA_Method, PRICE_CLOSE);
          hEMAslow = iMA(InpSymbol, InpTF, MA_Slow_Period, 0, MA_Method, PRICE_CLOSE);
          return (hEMAfast != INVALID_HANDLE && hEMAslow != INVALID_HANDLE);
 
-      case IND_RSI:
+      case OPT_RSI:
          hRSI = iRSI(InpSymbol, InpTF, RSI_Period, PRICE_CLOSE);
          return (hRSI != INVALID_HANDLE);
 
-      case IND_BOLLINGER:
+      case OPT_BOLLINGER:
          hBB = iBands(InpSymbol, InpTF, BB_Period, 0, BB_Desvio, PRICE_CLOSE);
          return (hBB != INVALID_HANDLE);
 
-      case IND_SUPERTREND:
+      case OPT_SUPERTREND:
          hATR = iATR(InpSymbol, InpTF, ST_ATR_Period);
          return (hATR != INVALID_HANDLE);
 
-      case IND_AMA_KAMA:
+      case OPT_AMA_KAMA:
          // KAMA é calculado manualmente
          return true;
 
-      case IND_HEIKIN_ASHI:
+      case OPT_HEIKIN_ASHI:
          // Heikin Ashi é calculado manualmente
          return true;
 
-      case IND_VWAP:
+      case OPT_VWAP:
          // VWAP é calculado manualmente
          return true;
 
-      case IND_MOMENTUM:
+      case OPT_MOMENTUM:
          // ROC é calculado manualmente
          return true;
 
-      case IND_QQE:
+      case OPT_QQE:
          hRSI = iRSI(InpSymbol, InpTF, QQE_RSI_Period, PRICE_CLOSE);
          return (hRSI != INVALID_HANDLE);
    }
@@ -259,15 +259,15 @@ bool InicializarIndicadores() {
 //+------------------------------------------------------------------+
 int ObterSinalIndicador() {
    switch(Indicador) {
-      case IND_MA_CROSS:    return SinalMACross();
-      case IND_RSI:         return SinalRSI();
-      case IND_BOLLINGER:   return SinalBollinger();
-      case IND_SUPERTREND:  return SinalSupertrend();
-      case IND_AMA_KAMA:    return SinalAMAKAMA();
-      case IND_HEIKIN_ASHI: return SinalHeikinAshi();
-      case IND_VWAP:        return SinalVWAP();
-      case IND_MOMENTUM:    return SinalMomentum();
-      case IND_QQE:         return SinalQQE();
+      case OPT_MA_CROSS:    return SinalMACross();
+      case OPT_RSI:         return SinalRSI();
+      case OPT_BOLLINGER:   return SinalBollinger();
+      case OPT_SUPERTREND:  return SinalSupertrend();
+      case OPT_AMA_KAMA:    return SinalAMAKAMA();
+      case OPT_HEIKIN_ASHI: return SinalHeikinAshi();
+      case OPT_VWAP:        return SinalVWAP();
+      case OPT_MOMENTUM:    return SinalMomentum();
+      case OPT_QQE:         return SinalQQE();
    }
    return 0;
 }
@@ -479,7 +479,7 @@ double CalcularVWAP() {
       double c = iClose(InpSymbol, VWAP_TF, i);
       double typical = (h + l + c) / 3.0;
 
-      long vol = VWAP_UseRealVolume ? iVolume(InpSymbol, VWAP_TF, i) : iTickVolume(InpSymbol, VWAP_TF, i);
+      double vol = (double)(VWAP_UseRealVolume ? iVolume(InpSymbol, VWAP_TF, i) : iTickVolume(InpSymbol, VWAP_TF, i));
 
       sumPV += typical * vol;
       sumV += vol;
@@ -610,15 +610,15 @@ void AbrirVenda() {
 
 string GetIndicadorNome() {
    switch(Indicador) {
-      case IND_MA_CROSS:    return "MA Cross";
-      case IND_RSI:         return "RSI";
-      case IND_BOLLINGER:   return "Bollinger";
-      case IND_SUPERTREND:  return "SuperTrend";
-      case IND_AMA_KAMA:    return "AMA/KAMA";
-      case IND_HEIKIN_ASHI: return "Heikin Ashi";
-      case IND_VWAP:        return "VWAP";
-      case IND_MOMENTUM:    return "Momentum";
-      case IND_QQE:         return "QQE";
+      case OPT_MA_CROSS:    return "MA Cross";
+      case OPT_RSI:         return "RSI";
+      case OPT_BOLLINGER:   return "Bollinger";
+      case OPT_SUPERTREND:  return "SuperTrend";
+      case OPT_AMA_KAMA:    return "AMA/KAMA";
+      case OPT_HEIKIN_ASHI: return "Heikin Ashi";
+      case OPT_VWAP:        return "VWAP";
+      case OPT_MOMENTUM:    return "Momentum";
+      case OPT_QQE:         return "QQE";
    }
    return "Desconhecido";
 }
