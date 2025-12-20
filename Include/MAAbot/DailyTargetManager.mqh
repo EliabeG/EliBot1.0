@@ -685,7 +685,9 @@ int GetMinutesSinceLastTrade() {
 void CheckForcedTradingMode() {
    if(!DT_ForceDailyTrade) return;
    if(g_dtState.targetHit) return;
-   if(!IsInDailyTradingWindow()) return;
+
+   // MODIFICADO: Verifica janela de trading, mas loga se está fora
+   bool inWindow = IsInDailyTradingWindow();
 
    int minutesSinceStart = GetMinutesSinceDayStart();
    int minutesSinceLastTrade = GetMinutesSinceLastTrade();
@@ -693,16 +695,22 @@ void CheckForcedTradingMode() {
    // Atualiza minutos sem trade
    g_dt_minutesWithoutTrade = minutesSinceLastTrade;
 
-   // DEBUG: Log para verificar valores
+   // DEBUG: Log para verificar valores (a cada 30 segundos)
    static datetime lastDebugTime = 0;
-   if(TimeCurrent() - lastDebugTime >= 60) { // Log a cada minuto
-      Print("[FORCE DEBUG] DT_ForceDailyTrade=", DT_ForceDailyTrade,
+   if(TimeCurrent() - lastDebugTime >= 30) {
+      Print("[FORCE DEBUG] ForceDailyTrade=", DT_ForceDailyTrade,
+            " | InWindow=", inWindow,
+            " | dayStart=", TimeToString(g_dtState.dayStart),
             " | minSinceStart=", minutesSinceStart,
             " | minSinceTrade=", minutesSinceLastTrade,
-            " | DT_ForceAfterMinutes=", DT_ForceAfterMinutes,
-            " | forceMode=", g_dtState.forceMode);
+            " | ForceAfterMin=", DT_ForceAfterMinutes,
+            " | forceMode=", g_dtState.forceMode,
+            " | ForceMinSignals=", DT_ForceMinSignals);
       lastDebugTime = TimeCurrent();
    }
+
+   // Se está fora da janela, não ativa modo forçado
+   if(!inWindow) return;
 
    // Se passou muito tempo sem trade, entra em modo forçado
    if(minutesSinceLastTrade >= DT_ForceAfterMinutes && !g_dtState.forceMode) {
@@ -715,6 +723,9 @@ void CheckForcedTradingMode() {
       Print(">>> MODO FORÇADO ATIVADO - OBRIGATÓRIO OPERAR! <<<");
       Print("Minutos sem trade: ", minutesSinceLastTrade);
       Print("Trades hoje: ", g_dtState.tradesOpened);
+      Print("DT_ForceMinSignals: ", DT_ForceMinSignals);
+      Print("ShouldForceEntryNow: ", ShouldForceEntryNow());
+      Print("ShouldAllowLowSignalEntry: ", ShouldAllowLowSignalEntry());
       Print("=====================================================");
    }
 
@@ -1307,13 +1318,17 @@ int GetMinutesWithoutTrade() {
 
 //===================== ENTRADA FORÇADA GARANTIDA =====================//
 // Verifica se deve fazer entrada forçada garantida (ignorando sinais)
-// Retorna true quando em modo forçado E (minSignals=0 OU nível alto de redução)
+// Retorna true quando em modo forçado E (minSignals<=1 OU nível alto de redução)
 bool ShouldForceEntryNow() {
    if(!IsForcedTradingMode()) return false;
    if(g_dtState.tradesOpened > 0) return false; // Já fez trade hoje
 
-   // Força entrada se DT_ForceMinSignals = 0 OU nível de redução >= 3
-   return (DT_ForceMinSignals <= 0) || (g_dtState.forceLevelReductions >= 3);
+   // NOVO: Força entrada IMEDIATAMENTE se DT_ForceMinSignals <= 1
+   // Ou após nível 1 de redução (30 minutos)
+   if(DT_ForceMinSignals <= 1) return true;
+
+   // Força entrada se nível de redução >= 2 (60 minutos)
+   return (g_dtState.forceLevelReductions >= 2);
 }
 
 // Retorna a direção para entrada forçada (+1 = Buy, -1 = Sell, 0 = nenhum)
@@ -1338,9 +1353,12 @@ int GetForcedEntryDirection(int trendDir, double probLong, double probShort) {
 bool ShouldAllowLowSignalEntry() {
    if(!IsForcedTradingMode()) return false;
 
-   // Permite entrada com sinais baixos após 2+ níveis de redução
-   // OU se DT_ForceMinSignals = 0
-   return (DT_ForceMinSignals <= 0) || (g_dtState.forceLevelReductions >= 2);
+   // NOVO: Permite entrada com sinais baixos IMEDIATAMENTE se DT_ForceMinSignals <= 1
+   // Ou após nível 1 de redução (30 minutos)
+   if(DT_ForceMinSignals <= 1) return true;
+
+   // Permite entrada com sinais baixos após 1+ níveis de redução
+   return (g_dtState.forceLevelReductions >= 1);
 }
 
 #endif // __MAABOT_DAILYTARGETMANAGER_MQH__

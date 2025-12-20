@@ -342,17 +342,41 @@ void OnTick() {
       bool wantSell = AllowShort && (g_signalsAgreeS >= minSignals_adj) && (pS >= thrS_adj);
 
       // ======== ENTRADA FORÇADA GARANTIDA ========
-      // Se deve forçar entrada (min signals=0 ou nível alto), entra na direção da tendência
-      if(canOpenDT && ShouldForceEntryNow() && !wantBuy && !wantSell) {
+      // Se deve forçar entrada (min signals<=1 ou nível alto), entra na direção da tendência
+      bool shouldForce = ShouldForceEntryNow();
+      bool allowLowSignal = ShouldAllowLowSignalEntry();
+
+      // DEBUG: Log do estado de entrada forçada (a cada 30 segundos)
+      static datetime lastForceDebug = 0;
+      if(IsForcedTradingMode() && TimeCurrent() - lastForceDebug >= 30) {
+         Print("[ENTRY DEBUG] ForcedMode=", IsForcedTradingMode(),
+               " | ShouldForce=", shouldForce,
+               " | AllowLowSignal=", allowLowSignal,
+               " | canOpenDT=", canOpenDT,
+               " | wantBuy=", wantBuy,
+               " | wantSell=", wantSell,
+               " | HasBasketBuy=", HasBasket(+1),
+               " | HasBasketSell=", HasBasket(-1),
+               " | trendDir=", g_trendDir,
+               " | pL=", pL, " | pS=", pS);
+         lastForceDebug = TimeCurrent();
+      }
+
+      if(canOpenDT && shouldForce && !wantBuy && !wantSell) {
          int forcedDir = GetForcedEntryDirection(g_trendDir, pL, pS);
-         if(forcedDir > 0 && AllowLong) {
+         Print("[FORCED ENTRY] Tentando entrada forçada... forcedDir=", forcedDir,
+               " | AllowLong=", AllowLong, " | AllowShort=", AllowShort);
+
+         if(forcedDir > 0 && AllowLong && !HasBasket(+1)) {
             wantBuy = true;
             g_statusMsg = "ENTRADA FORÇADA - COMPRA (tendência)";
             Print(">>> ENTRADA FORÇADA: COMPRA na direção da tendência <<<");
-         } else if(forcedDir < 0 && AllowShort) {
+         } else if(forcedDir < 0 && AllowShort && !HasBasket(-1)) {
             wantSell = true;
             g_statusMsg = "ENTRADA FORÇADA - VENDA (tendência)";
             Print(">>> ENTRADA FORÇADA: VENDA na direção da tendência <<<");
+         } else if(forcedDir == 0) {
+            Print("[FORCED ENTRY] forcedDir=0, nenhuma direção determinada");
          }
       }
 
