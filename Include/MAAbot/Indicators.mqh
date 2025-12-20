@@ -385,7 +385,8 @@ int CalcSCPSignal(string sym, ENUM_TIMEFRAMES tf) {
       if(power_T > max_power) {
          max_power = power_T;
          periodo_dominante = T;
-         fase_dominante = MathArctan2(-imag_sum, real_sum);
+         // MathArctan2 não existe em MQL5, usando atan2 padrão
+         fase_dominante = atan2(-imag_sum, real_sum);
       }
    }
 
