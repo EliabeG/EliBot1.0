@@ -15,9 +15,9 @@ struct GridState {
    double baseLot; 
 };
 
-struct Signals { 
-   int mac, rsi, bb, st, ama, ha, vwap, mom, qqe; 
-   double emaF, emaS, vwapv, c0; 
+struct Signals {
+   int akte, rsi, pvp, iae, scp, ha, fhmi, mom, qqe;
+   double c0;
 };
 
 struct BasketInfo { 

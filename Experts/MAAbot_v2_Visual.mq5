@@ -1,24 +1,24 @@
 //+------------------------------------------------------------------+
 //|                                         MAAbot_v2_Visual.mq5     |
 //|   XAUUSD M15 - Ensemble + Trend-Aware + TP/SL Precisos + Hedge   |
-//|   v2.6.0 - OTIMIZAÇÃO INDIVIDUAL DE INDICADORES                  |
+//|   v2.7.0 - INDICADORES AVANÇADOS (AKTE, PVP, IAE, SCP, FHMI)     |
 //|                                     Autor: Eliabe N Oliveira     |
-//|                                      Data: 18/12/2025            |
+//|                                      Data: 20/12/2025            |
 //+------------------------------------------------------------------+
-//| NOVIDADES v2.6.0:                                                 |
-//| - OTIMIZAÇÃO INDIVIDUAL: Ative/desative cada indicador           |
-//| - Inputs REORGANIZADOS por indicador (fácil de encontrar)        |
-//| - Sistema de PESOS respeita indicadores desativados              |
-//| - MinSignals ajustado automaticamente aos ativos                 |
-//| - Interface em Português Brasileiro                              |
+//| NOVIDADES v2.7.0:                                                 |
+//| - AKTE: Adaptive Kalman Trend Estimator (Filtro de Kalman 1D)    |
+//| - PVP: Polynomial Velocity Predictor (Regressão Cúbica)          |
+//| - IAE: Integral Arc Efficiency (Eficiência de Arco)              |
+//| - SCP: Spectral Cycle Phaser (Análise de Fourier DFT)            |
+//| - FHMI: Fractal Hurst Memory Index (Análise R/S de Hurst)        |
 //+------------------------------------------------------------------+
-//| NOVIDADES v2.5.2:                                                 |
-//| - OPERAÇÃO OBRIGATÓRIA: Bot é FORÇADO a operar todos os dias     |
-//| - Modo forçado ativa após X minutos sem trades                   |
+//| INDICADORES SUBSTITUÍDOS:                                         |
+//| - MA Cross → AKTE    - BBands → PVP    - SuperTrend → IAE        |
+//| - AMA/KAMA → SCP     - VWAP → FHMI                               |
 //+------------------------------------------------------------------+
 #property strict
-#property description "XAUUSD M15 — v2.6.0 - Otimização Individual de Indicadores"
-#property version  "2.60"
+#property description "XAUUSD M15 — v2.7.0 - Indicadores Avançados"
+#property version  "2.70"
 
 //+------------------------------------------------------------------+
 //|                    INCLUDES - MÓDULOS DO EA                       |
@@ -63,16 +63,13 @@ int OnInit() {
    trade.SetDeviationInPoints(DeviationPoints);
    
    // Inicializar handles de indicadores
-   hEMAfast = iMA(InpSymbol, InpTF, EMA_Fast, 0, MODE_EMA, PRICE_CLOSE);
-   hEMAslow = iMA(InpSymbol, InpTF, EMA_Slow, 0, MODE_EMA, PRICE_CLOSE);
    hRSI = iRSI(InpSymbol, InpTF, RSI_Period, PRICE_CLOSE);
-   hBB = iBands(InpSymbol, InpTF, BB_Period, 0, BB_Dev, PRICE_CLOSE);
    hATR = iATR(InpSymbol, InpTF, ATR_Period);
-   hATR_ST_INP = iATR(InpSymbol, InpTF, ST_ATR_Period);
-   hATR_ST_TF1 = iATR(InpSymbol, Trend_TF1, ST_ATR_Period);
-   
-   if(Trend_UseTF2) hATR_ST_TF2 = iATR(InpSymbol, Trend_TF2, ST_ATR_Period);
-   
+
+   // Handles para novos indicadores
+   if(Enable_AKTE) hATR_AKTE = iATR(InpSymbol, InpTF, AKTE_ATRPeriod);
+   if(Enable_IAE) hEMA_IAE = iMA(InpSymbol, InpTF, IAE_EMA_Period, 0, MODE_EMA, PRICE_CLOSE);
+
    if(UseQQEFilter) {
       hQQE_RSI = iRSI(InpSymbol, InpTF, QQE_RSI_Period, PRICE_CLOSE);
       if(hQQE_RSI == INVALID_HANDLE) Print("AVISO: Nao foi possivel criar handle para QQE RSI");
@@ -97,9 +94,8 @@ int OnInit() {
    eqPeak = AccountInfoDouble(ACCOUNT_EQUITY); 
    ddPausedUntil = 0;
    
-   if(hEMAfast == INVALID_HANDLE || hEMAslow == INVALID_HANDLE || 
-      hRSI == INVALID_HANDLE || hBB == INVALID_HANDLE || hATR == INVALID_HANDLE) {
-      Print("Erro ao criar indicadores!");
+   if(hRSI == INVALID_HANDLE || hATR == INVALID_HANDLE) {
+      Print("Erro ao criar indicadores basicos!");
       return INIT_FAILED;
    }
    
@@ -115,10 +111,10 @@ int OnInit() {
    }
 
    Print("=============================================================");
-   Print("     MAABot v2.5.2 - OPERAÇÃO OBRIGATÓRIA                    ");
+   Print("     MAABot v2.7.0 - Indicadores Avançados                   ");
    Print("=============================================================");
-   Print(" Estrategias: MA Cross, RSI, BBands, SuperTrend, AMA/KAMA,");
-   Print("              Heikin Ashi, VWAP, Momentum, QQE");
+   Print(" Estrategias: AKTE, RSI, PVP, IAE, SCP,");
+   Print("              Heikin Ashi, FHMI, Momentum, QQE");
    Print("=============================================================");
    Print(" AllowLong=", AllowLong, " | AllowShort=", AllowShort);
    Print(" Indicadores ATIVOS: ", CountActiveIndicators(), "/9");
@@ -165,14 +161,10 @@ void OnDeinit(const int reason) {
    DeinitTrailingIndicators();
 
    // Liberar handles de indicadores
-   if(hEMAfast != INVALID_HANDLE) IndicatorRelease(hEMAfast);
-   if(hEMAslow != INVALID_HANDLE) IndicatorRelease(hEMAslow);
    if(hRSI != INVALID_HANDLE) IndicatorRelease(hRSI);
-   if(hBB != INVALID_HANDLE) IndicatorRelease(hBB);
    if(hATR != INVALID_HANDLE) IndicatorRelease(hATR);
-   if(hATR_ST_INP != INVALID_HANDLE) IndicatorRelease(hATR_ST_INP);
-   if(hATR_ST_TF1 != INVALID_HANDLE) IndicatorRelease(hATR_ST_TF1);
-   if(hATR_ST_TF2 != INVALID_HANDLE) IndicatorRelease(hATR_ST_TF2);
+   if(hATR_AKTE != INVALID_HANDLE) IndicatorRelease(hATR_AKTE);
+   if(hEMA_IAE != INVALID_HANDLE) IndicatorRelease(hEMA_IAE);
    if(hTF1_EMAf != INVALID_HANDLE) IndicatorRelease(hTF1_EMAf);
    if(hTF1_EMAs != INVALID_HANDLE) IndicatorRelease(hTF1_EMAs);
    if(hTF2_EMAf != INVALID_HANDLE) IndicatorRelease(hTF2_EMAf);
@@ -185,7 +177,7 @@ void OnDeinit(const int reason) {
    if(hQQE_RSI != INVALID_HANDLE) IndicatorRelease(hQQE_RSI);
    
    DeletePanelObjects();
-   Print("MAABot v2.5.2 finalizado. Razao: ", reason);
+   Print("MAABot v2.7.0 finalizado. Razao: ", reason);
 }
 
 //+------------------------------------------------------------------+
@@ -211,6 +203,13 @@ void OnTick() {
       UpdatePanel(S);
       return; // Não processa mais nada - só opera amanhã
    }
+
+   //=====================================================================
+   // PONTO 1.5: GERENCIAMENTO DA META DIÁRIA
+   // Atualiza P/L, verifica modo agressivo e modo forçado de operação
+   // CRÍTICO: Esta chamada ativa os modos agressivo e forçado!
+   //=====================================================================
+   ManageDailyTarget();
 
    // PONTO 2: Se trading está bloqueado após meta, não faz nada
    if(IsTradingBlockedAfterTarget()) {

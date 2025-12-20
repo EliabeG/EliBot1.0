@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                                       Panel.mqh  |
-//|   MAAbot v2.3.1 - Painel Visual                                  |
+//|   MAAbot v2.7.0 - Painel Visual                                  |
 //|                                     Autor: Eliabe N Oliveira     |
 //+------------------------------------------------------------------+
 #ifndef __MAABOT_PANEL_MQH__
@@ -82,7 +82,7 @@ void UpdatePanel(const Signals &S) {
    
    // ============ CABEÇALHO ============
    CreatePanelRectangle("Header_BG", x, y, PanelWidth, lineH + 8, C'30,30,50');
-   CreatePanelLabel("Header", x + 150, y + 4, "MAABot v2.3.1 - PANEL", PanelHeaderColor, PanelFontSize + 1);
+   CreatePanelLabel("Header", x + 150, y + 4, "MAABot v2.7.0 - PANEL", PanelHeaderColor, PanelFontSize + 1);
    row += 2;
    
    // ============ SEÇÃO: MERCADO ============
@@ -146,14 +146,14 @@ void UpdatePanel(const Signals &S) {
    CreatePanelLabel("TH_Detail", tCol5, y + lineH * row, "VALOR", C'150,150,150');
    row++;
    
-   // 1. MA Cross
-   CreatePanelLabel("S1_Name", tCol1, y + lineH * row, "1.MA Cross", PanelAccentColor);
-   CreatePanelLabel("S1_Sig", tCol2, y + lineH * row, SignalToIcon(S.mac), SignalToColor(S.mac));
-   CreatePanelLabel("S1_Status", tCol3, y + lineH * row, SignalToText(S.mac), SignalToColor(S.mac));
-   CreatePanelLabel("S1_Weight", tCol4, y + lineH * row, DoubleToString(W_MAcross, 1), C'180,180,180');
-   CreatePanelLabel("S1_Detail", tCol5, y + lineH * row, "EMA" + IntegerToString(EMA_Fast) + "/" + IntegerToString(EMA_Slow), C'150,150,150');
+   // 1. AKTE (Adaptive Kalman Trend Estimator)
+   CreatePanelLabel("S1_Name", tCol1, y + lineH * row, "1.AKTE", PanelAccentColor);
+   CreatePanelLabel("S1_Sig", tCol2, y + lineH * row, SignalToIcon(S.akte), SignalToColor(S.akte));
+   CreatePanelLabel("S1_Status", tCol3, y + lineH * row, SignalToText(S.akte), SignalToColor(S.akte));
+   CreatePanelLabel("S1_Weight", tCol4, y + lineH * row, DoubleToString(W_AKTE, 1), C'180,180,180');
+   CreatePanelLabel("S1_Detail", tCol5, y + lineH * row, "Kalman K=" + DoubleToString(g_akte_K_atual, 2), C'150,150,150');
    row++;
-   
+
    // 2. RSI
    CreatePanelLabel("S2_Name", tCol1, y + lineH * row, "2.RSI", PanelAccentColor);
    CreatePanelLabel("S2_Sig", tCol2, y + lineH * row, SignalToIcon(S.rsi), SignalToColor(S.rsi));
@@ -161,33 +161,31 @@ void UpdatePanel(const Signals &S) {
    CreatePanelLabel("S2_Weight", tCol4, y + lineH * row, DoubleToString(W_RSI, 1), C'180,180,180');
    CreatePanelLabel("S2_Detail", tCol5, y + lineH * row, "RSI=" + DoubleToString(g_rsiValue, 1), C'150,150,150');
    row++;
-   
-   // 3. Bollinger
-   CreatePanelLabel("S3_Name", tCol1, y + lineH * row, "3.BBands", PanelAccentColor);
-   CreatePanelLabel("S3_Sig", tCol2, y + lineH * row, SignalToIcon(S.bb), SignalToColor(S.bb));
-   CreatePanelLabel("S3_Status", tCol3, y + lineH * row, SignalToText(S.bb), SignalToColor(S.bb));
-   CreatePanelLabel("S3_Weight", tCol4, y + lineH * row, DoubleToString(W_BBands, 1), C'180,180,180');
-   string bbPos = (S.c0 > g_bbUpper) ? "Acima" : (S.c0 < g_bbLower) ? "Abaixo" : "Dentro";
-   CreatePanelLabel("S3_Detail", tCol5, y + lineH * row, bbPos, C'150,150,150');
+
+   // 3. PVP (Polynomial Velocity Predictor)
+   CreatePanelLabel("S3_Name", tCol1, y + lineH * row, "3.PVP", PanelAccentColor);
+   CreatePanelLabel("S3_Sig", tCol2, y + lineH * row, SignalToIcon(S.pvp), SignalToColor(S.pvp));
+   CreatePanelLabel("S3_Status", tCol3, y + lineH * row, SignalToText(S.pvp), SignalToColor(S.pvp));
+   CreatePanelLabel("S3_Weight", tCol4, y + lineH * row, DoubleToString(W_PVP, 1), C'180,180,180');
+   CreatePanelLabel("S3_Detail", tCol5, y + lineH * row, "Prob=" + DoubleToString(g_pvp_prob_alta * 100, 0) + "%", C'150,150,150');
    row++;
-   
-   // 4. SuperTrend
-   CreatePanelLabel("S4_Name", tCol1, y + lineH * row, "4.SuperTrend", PanelAccentColor);
-   CreatePanelLabel("S4_Sig", tCol2, y + lineH * row, SignalToIcon(S.st), SignalToColor(S.st));
-   CreatePanelLabel("S4_Status", tCol3, y + lineH * row, SignalToText(S.st), SignalToColor(S.st));
-   CreatePanelLabel("S4_Weight", tCol4, y + lineH * row, DoubleToString(W_Supertrend, 1), C'180,180,180');
-   CreatePanelLabel("S4_Detail", tCol5, y + lineH * row, (S.st > 0) ? "Alta" : (S.st < 0) ? "Baixa" : "---", C'150,150,150');
+
+   // 4. IAE (Integral Arc Efficiency)
+   CreatePanelLabel("S4_Name", tCol1, y + lineH * row, "4.IAE", PanelAccentColor);
+   CreatePanelLabel("S4_Sig", tCol2, y + lineH * row, SignalToIcon(S.iae), SignalToColor(S.iae));
+   CreatePanelLabel("S4_Status", tCol3, y + lineH * row, SignalToText(S.iae), SignalToColor(S.iae));
+   CreatePanelLabel("S4_Weight", tCol4, y + lineH * row, DoubleToString(W_IAE, 1), C'180,180,180');
+   CreatePanelLabel("S4_Detail", tCol5, y + lineH * row, "Eff=" + DoubleToString(g_iae_eficiencia, 2), C'150,150,150');
    row++;
-   
-   // 5. AMA/KAMA
-   CreatePanelLabel("S5_Name", tCol1, y + lineH * row, "5.AMA/KAMA", PanelAccentColor);
-   CreatePanelLabel("S5_Sig", tCol2, y + lineH * row, SignalToIcon(S.ama), SignalToColor(S.ama));
-   CreatePanelLabel("S5_Status", tCol3, y + lineH * row, SignalToText(S.ama), SignalToColor(S.ama));
-   CreatePanelLabel("S5_Weight", tCol4, y + lineH * row, DoubleToString(W_AMA, 1), C'180,180,180');
-   string kamaDir = (g_kamaSlope > 0) ? "Subindo" : (g_kamaSlope < 0) ? "Caindo" : "Lateral";
-   CreatePanelLabel("S5_Detail", tCol5, y + lineH * row, kamaDir, C'150,150,150');
+
+   // 5. SCP (Spectral Cycle Phaser)
+   CreatePanelLabel("S5_Name", tCol1, y + lineH * row, "5.SCP", PanelAccentColor);
+   CreatePanelLabel("S5_Sig", tCol2, y + lineH * row, SignalToIcon(S.scp), SignalToColor(S.scp));
+   CreatePanelLabel("S5_Status", tCol3, y + lineH * row, SignalToText(S.scp), SignalToColor(S.scp));
+   CreatePanelLabel("S5_Weight", tCol4, y + lineH * row, DoubleToString(W_SCP, 1), C'180,180,180');
+   CreatePanelLabel("S5_Detail", tCol5, y + lineH * row, "T=" + IntegerToString(g_scp_ciclo_dominante), C'150,150,150');
    row++;
-   
+
    // 6. Heikin Ashi
    CreatePanelLabel("S6_Name", tCol1, y + lineH * row, "6.HeikinAshi", PanelAccentColor);
    CreatePanelLabel("S6_Sig", tCol2, y + lineH * row, SignalToIcon(S.ha), SignalToColor(S.ha));
@@ -195,15 +193,15 @@ void UpdatePanel(const Signals &S) {
    CreatePanelLabel("S6_Weight", tCol4, y + lineH * row, DoubleToString(W_Heikin, 1), C'180,180,180');
    CreatePanelLabel("S6_Detail", tCol5, y + lineH * row, (S.ha > 0) ? "Alta" : (S.ha < 0) ? "Baixa" : "---", C'150,150,150');
    row++;
-   
-   // 7. VWAP
-   CreatePanelLabel("S7_Name", tCol1, y + lineH * row, "7.VWAP", PanelAccentColor);
-   CreatePanelLabel("S7_Sig", tCol2, y + lineH * row, SignalToIcon(S.vwap), SignalToColor(S.vwap));
-   CreatePanelLabel("S7_Status", tCol3, y + lineH * row, SignalToText(S.vwap), SignalToColor(S.vwap));
-   CreatePanelLabel("S7_Weight", tCol4, y + lineH * row, DoubleToString(W_VWAP, 1), C'180,180,180');
-   CreatePanelLabel("S7_Detail", tCol5, y + lineH * row, (S.c0 > g_currentVWAP) ? "Acima" : "Abaixo", C'150,150,150');
+
+   // 7. FHMI (Fractal Hurst Memory Index)
+   CreatePanelLabel("S7_Name", tCol1, y + lineH * row, "7.FHMI", PanelAccentColor);
+   CreatePanelLabel("S7_Sig", tCol2, y + lineH * row, SignalToIcon(S.fhmi), SignalToColor(S.fhmi));
+   CreatePanelLabel("S7_Status", tCol3, y + lineH * row, SignalToText(S.fhmi), SignalToColor(S.fhmi));
+   CreatePanelLabel("S7_Weight", tCol4, y + lineH * row, DoubleToString(W_FHMI, 1), C'180,180,180');
+   CreatePanelLabel("S7_Detail", tCol5, y + lineH * row, "H=" + DoubleToString(g_fhmi_hurst, 2), C'150,150,150');
    row++;
-   
+
    // 8. Momentum
    CreatePanelLabel("S8_Name", tCol1, y + lineH * row, "8.Momentum", PanelAccentColor);
    CreatePanelLabel("S8_Sig", tCol2, y + lineH * row, SignalToIcon(S.mom), SignalToColor(S.mom));
@@ -211,7 +209,7 @@ void UpdatePanel(const Signals &S) {
    CreatePanelLabel("S8_Weight", tCol4, y + lineH * row, DoubleToString(W_Momentum, 1), C'180,180,180');
    CreatePanelLabel("S8_Detail", tCol5, y + lineH * row, DoubleToString(g_rocValue * 100, 2) + "%", C'150,150,150');
    row++;
-   
+
    // 9. QQE
    CreatePanelLabel("S9_Name", tCol1, y + lineH * row, "9.QQE", PanelAccentColor);
    CreatePanelLabel("S9_Sig", tCol2, y + lineH * row, SignalToIcon(S.qqe), SignalToColor(S.qqe));
@@ -244,27 +242,29 @@ void UpdatePanel(const Signals &S) {
    CreatePanelLabel("ThrSLbl", col4, y + lineH * row, "Thr:" + DoubleToString(g_thrS * 100, 0) + "%", C'150,150,150');
    row++;
    
-   // Sinais LONG
+   // Sinais LONG (usando número dinâmico de indicadores ativos)
+   int activeIndicators = CountActiveIndicators();
+   int effMinSignals = GetEffectiveMinSignals();
    CreatePanelLabel("AgreeLLbl", col1, y + lineH * row, "Sinais LONG:", PanelTextColor);
-   color agreeLClr = (g_signalsAgreeL >= MinAgreeSignals) ? PanelBuyColor : PanelNeutralColor;
-   CreatePanelLabel("AgreeLVal", col2, y + lineH * row, IntegerToString(g_signalsAgreeL) + "/9", agreeLClr);
-   string barL = ""; for(int i = 0; i < 9; i++) barL += (i < g_signalsAgreeL) ? "|" : ".";
+   color agreeLClr = (g_signalsAgreeL >= effMinSignals) ? PanelBuyColor : PanelNeutralColor;
+   CreatePanelLabel("AgreeLVal", col2, y + lineH * row, IntegerToString(g_signalsAgreeL) + "/" + IntegerToString(activeIndicators), agreeLClr);
+   string barL = ""; for(int i = 0; i < activeIndicators; i++) barL += (i < g_signalsAgreeL) ? "|" : ".";
    CreatePanelLabel("AgreeLBar", col2 + 50, y + lineH * row, "[" + barL + "]", agreeLClr);
-   CreatePanelLabel("MinLLbl", col4, y + lineH * row, "Min:" + IntegerToString(MinAgreeSignals), C'150,150,150');
+   CreatePanelLabel("MinLLbl", col4, y + lineH * row, "Min:" + IntegerToString(effMinSignals), C'150,150,150');
    row++;
-   
-   // Sinais SHORT
+
+   // Sinais SHORT (usando número dinâmico de indicadores ativos)
    CreatePanelLabel("AgreeSLbl", col1, y + lineH * row, "Sinais SHORT:", PanelTextColor);
-   color agreeSClr = (g_signalsAgreeS >= MinAgreeSignals) ? PanelSellColor : PanelNeutralColor;
-   CreatePanelLabel("AgreeSVal", col2, y + lineH * row, IntegerToString(g_signalsAgreeS) + "/9", agreeSClr);
-   string barS = ""; for(int i = 0; i < 9; i++) barS += (i < g_signalsAgreeS) ? "|" : ".";
+   color agreeSClr = (g_signalsAgreeS >= effMinSignals) ? PanelSellColor : PanelNeutralColor;
+   CreatePanelLabel("AgreeSVal", col2, y + lineH * row, IntegerToString(g_signalsAgreeS) + "/" + IntegerToString(activeIndicators), agreeSClr);
+   string barS = ""; for(int i = 0; i < activeIndicators; i++) barS += (i < g_signalsAgreeS) ? "|" : ".";
    CreatePanelLabel("AgreeSBar", col2 + 50, y + lineH * row, "[" + barS + "]", agreeSClr);
-   CreatePanelLabel("MinSLbl", col4, y + lineH * row, "Min:" + IntegerToString(MinAgreeSignals), C'150,150,150');
+   CreatePanelLabel("MinSLbl", col4, y + lineH * row, "Min:" + IntegerToString(effMinSignals), C'150,150,150');
    row++;
    
-   // Decisão
-   bool canBuy = (g_signalsAgreeL >= MinAgreeSignals) && (g_probLong >= g_thrL) && AllowLong;
-   bool canSell = (g_signalsAgreeS >= MinAgreeSignals) && (g_probShort >= g_thrS) && AllowShort;
+   // Decisão (usa mínimo efetivo de sinais)
+   bool canBuy = (g_signalsAgreeL >= effMinSignals) && (g_probLong >= g_thrL) && AllowLong;
+   bool canSell = (g_signalsAgreeS >= effMinSignals) && (g_probShort >= g_thrS) && AllowShort;
    string decisionStr = ""; color decisionClr = PanelNeutralColor;
    if(canBuy && canSell) { decisionStr = "AMBOS OK"; decisionClr = clrYellow; }
    else if(canBuy) { decisionStr = "PODE COMPRAR"; decisionClr = PanelBuyColor; }
