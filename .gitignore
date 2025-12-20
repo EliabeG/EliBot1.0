@@ -1,0 +1,4 @@
+
+# Nuvemshop import scripts (contain API credentials)
+nuvemshop_products.py
+nuvemshop_products_v2.py
