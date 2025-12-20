@@ -580,7 +580,8 @@ double FHMI_CalcularHurst(double &retornos[], int n) {
 //                    HEIKIN ASHI (mantido)                                   //
 //============================================================================//
 int HeikinAshiSignal(string sym, ENUM_TIMEFRAMES tf) {
-   const int B = 6;
+   int B = HA_Period;
+   if(B < 2) B = 2;  // Mínimo de 2 barras
    MqlRates r[]; ArraySetAsSeries(r, true);
    if(CopyRates(sym, tf, 0, B, r) < B) return 0;
 
