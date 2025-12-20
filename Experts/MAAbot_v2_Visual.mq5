@@ -204,6 +204,13 @@ void OnTick() {
       return; // Não processa mais nada - só opera amanhã
    }
 
+   //=====================================================================
+   // PONTO 1.5: GERENCIAMENTO DA META DIÁRIA
+   // Atualiza P/L, verifica modo agressivo e modo forçado de operação
+   // CRÍTICO: Esta chamada ativa os modos agressivo e forçado!
+   //=====================================================================
+   ManageDailyTarget();
+
    // PONTO 2: Se trading está bloqueado após meta, não faz nada
    if(IsTradingBlockedAfterTarget()) {
       Signals S; ZeroMemory(S);

@@ -164,6 +164,12 @@ void ResetDailyState() {
    g_dtState.aggressiveStartTime = 0;
    g_dtState.aggressiveTradesOpened = 0;
    g_dtState.aggressivePL = 0.0;
+
+   // Reseta campos de operação forçada
+   g_dtState.forceMode = false;
+   g_dtState.lastTradeTime = 0;
+   g_dtState.forceStartTime = 0;
+   g_dtState.forceLevelReductions = 0;
 }
 
 //===================== CÁLCULO DE SALDO BASE =====================//
