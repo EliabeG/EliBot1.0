@@ -693,6 +693,17 @@ void CheckForcedTradingMode() {
    // Atualiza minutos sem trade
    g_dt_minutesWithoutTrade = minutesSinceLastTrade;
 
+   // DEBUG: Log para verificar valores
+   static datetime lastDebugTime = 0;
+   if(TimeCurrent() - lastDebugTime >= 60) { // Log a cada minuto
+      Print("[FORCE DEBUG] DT_ForceDailyTrade=", DT_ForceDailyTrade,
+            " | minSinceStart=", minutesSinceStart,
+            " | minSinceTrade=", minutesSinceLastTrade,
+            " | DT_ForceAfterMinutes=", DT_ForceAfterMinutes,
+            " | forceMode=", g_dtState.forceMode);
+      lastDebugTime = TimeCurrent();
+   }
+
    // Se passou muito tempo sem trade, entra em modo forçado
    if(minutesSinceLastTrade >= DT_ForceAfterMinutes && !g_dtState.forceMode) {
       g_dtState.forceMode = true;
@@ -1292,6 +1303,44 @@ int GetForceLevelReductions() {
 // Retorna minutos sem trade
 int GetMinutesWithoutTrade() {
    return g_dt_minutesWithoutTrade;
+}
+
+//===================== ENTRADA FORÇADA GARANTIDA =====================//
+// Verifica se deve fazer entrada forçada garantida (ignorando sinais)
+// Retorna true quando em modo forçado E (minSignals=0 OU nível alto de redução)
+bool ShouldForceEntryNow() {
+   if(!IsForcedTradingMode()) return false;
+   if(g_dtState.tradesOpened > 0) return false; // Já fez trade hoje
+
+   // Força entrada se DT_ForceMinSignals = 0 OU nível de redução >= 3
+   return (DT_ForceMinSignals <= 0) || (g_dtState.forceLevelReductions >= 3);
+}
+
+// Retorna a direção para entrada forçada (+1 = Buy, -1 = Sell, 0 = nenhum)
+// Baseado na direção da tendência principal
+int GetForcedEntryDirection(int trendDir, double probLong, double probShort) {
+   if(!ShouldForceEntryNow()) return 0;
+
+   // Se há tendência clara, segue a tendência
+   if(trendDir != 0) {
+      return trendDir;
+   }
+
+   // Se não há tendência, vai na direção com maior probabilidade
+   if(probLong > probShort) return +1;
+   if(probShort > probLong) return -1;
+
+   // Se tudo igual, vai comprado (XAUUSD tende a subir no longo prazo)
+   return +1;
+}
+
+// Verifica se deve permitir entrada mesmo com sinais insuficientes
+bool ShouldAllowLowSignalEntry() {
+   if(!IsForcedTradingMode()) return false;
+
+   // Permite entrada com sinais baixos após 2+ níveis de redução
+   // OU se DT_ForceMinSignals = 0
+   return (DT_ForceMinSignals <= 0) || (g_dtState.forceLevelReductions >= 2);
 }
 
 #endif // __MAABOT_DAILYTARGETMANAGER_MQH__

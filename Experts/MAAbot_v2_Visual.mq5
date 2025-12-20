@@ -318,6 +318,13 @@ void OnTick() {
          // Usa o mínimo de sinais mais permissivo (menor)
          minSignals_adj = GetCombinedMinSignals();
 
+         // Se permite entrada com sinais baixos, aceita 0 sinais
+         if(ShouldAllowLowSignalEntry()) {
+            minSignals_adj = 0;
+            thrL_adj = 0.0;
+            thrS_adj = 0.0;
+         }
+
          // Ignora filtros se agressivo OU forçado
          ignoreFilters = ShouldIgnoreFiltersCombined();
 
@@ -333,6 +340,21 @@ void OnTick() {
       // Usa os valores ajustados para decisão
       bool wantBuy = AllowLong && (g_signalsAgreeL >= minSignals_adj) && (pL >= thrL_adj);
       bool wantSell = AllowShort && (g_signalsAgreeS >= minSignals_adj) && (pS >= thrS_adj);
+
+      // ======== ENTRADA FORÇADA GARANTIDA ========
+      // Se deve forçar entrada (min signals=0 ou nível alto), entra na direção da tendência
+      if(canOpenDT && ShouldForceEntryNow() && !wantBuy && !wantSell) {
+         int forcedDir = GetForcedEntryDirection(g_trendDir, pL, pS);
+         if(forcedDir > 0 && AllowLong) {
+            wantBuy = true;
+            g_statusMsg = "ENTRADA FORÇADA - COMPRA (tendência)";
+            Print(">>> ENTRADA FORÇADA: COMPRA na direção da tendência <<<");
+         } else if(forcedDir < 0 && AllowShort) {
+            wantSell = true;
+            g_statusMsg = "ENTRADA FORÇADA - VENDA (tendência)";
+            Print(">>> ENTRADA FORÇADA: VENDA na direção da tendência <<<");
+         }
+      }
 
       // Structure lock (pode ser ignorado no modo agressivo/forçado)
       if(UseStructureLock && !ignoreFilters) {
