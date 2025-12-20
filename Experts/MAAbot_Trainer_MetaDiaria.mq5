@@ -1,14 +1,54 @@
 //+------------------------------------------------------------------+
 //|                                     MAAbot_Trainer_MetaDiaria.mq5 |
-//|   Trainer Simplificado: 9 Indicadores + Meta Diaria              |
+//|   Trainer Completo: 9 Indicadores + Meta Diaria Avancada         |
 //|   SEM: Grid, Hedge, Trailing Complexo, Filtros                   |
 //|                                     Autor: Eliabe N Oliveira     |
 //+------------------------------------------------------------------+
 #property strict
-#property description "Trainer: Indicadores + Meta Diaria (TP/SL Fixos)"
-#property version   "1.00"
+#property description "Trainer: Indicadores + Meta Diaria Completa"
+#property version   "2.00"
 
 #include <Trade/Trade.mqh>
+
+//+------------------------------------------------------------------+
+//|                    ENUMS PARA META DIARIA                         |
+//+------------------------------------------------------------------+
+enum DailyTargetMode {
+   DTARGET_OFF            = 0,  // Desligado
+   DTARGET_CONSERVATIVE   = 1,  // Conservador - Para ao atingir meta
+   DTARGET_MODERATE       = 2,  // Moderado - Continua até fim do horário
+   DTARGET_AGGRESSIVE     = 3   // Agressivo - Meta obrigatória (arrisca tudo)
+};
+
+enum EndOfDayBehavior {
+   EOD_CLOSE_ALL          = 0,  // Fechar todas as posições
+   EOD_KEEP_WINNING       = 1,  // Manter apenas posições lucrativas
+   EOD_KEEP_ALL           = 2,  // Manter todas as posições
+   EOD_AGGRESSIVE_PUSH    = 3   // Modo agressivo para bater meta
+};
+
+enum BalanceBaseMode {
+   BALANCE_START_DAY      = 0,  // Saldo no início do dia
+   BALANCE_START_WEEK     = 1,  // Saldo no início da semana
+   BALANCE_START_MONTH    = 2,  // Saldo no início do mês
+   BALANCE_CURRENT        = 3,  // Saldo atual (equity)
+   BALANCE_FIXED          = 4   // Valor fixo definido pelo usuário
+};
+
+enum AggressiveLevel {
+   AGG_LEVEL_1            = 1,  // Leve (+25% lote, -10% threshold)
+   AGG_LEVEL_2            = 2,  // Moderado (+50% lote, -20% threshold)
+   AGG_LEVEL_3            = 3,  // Alto (+100% lote, -30% threshold)
+   AGG_LEVEL_4            = 4,  // Muito Alto (+150% lote, ignora filtros)
+   AGG_LEVEL_5            = 5   // Extremo (All-in, qualquer sinal)
+};
+
+enum DailyProfitProtection {
+   PROFIT_PROT_OFF        = 0,  // Sem proteção
+   PROFIT_PROT_HALF       = 1,  // Proteger 50% do lucro após meta
+   PROFIT_PROT_TRAIL      = 2,  // Trailing da meta (sobe junto)
+   PROFIT_PROT_LOCK       = 3   // Travar lucro total após meta
+};
 
 //+------------------------------------------------------------------+
 //|                    CONFIGURACOES BASICAS                          |
@@ -103,17 +143,74 @@ input int      QQE_RSI_Period         = 34;
 input int      QQE_SmoothingFactor    = 46;
 
 //+------------------------------------------------------------------+
-//|                    META DIARIA                                    |
+//|                    META DIARIA - CONTROLE MESTRE                  |
 //+------------------------------------------------------------------+
-input group "══════ META DIARIA ══════"
-input bool     Enable_DailyTarget     = true;
-input double   DT_TargetPercent       = 1.0;           // Meta diaria em %
-input double   DT_MaxDailyLoss        = 3.0;           // Perda maxima diaria em %
-input bool     DT_CloseOnTarget       = true;          // Fechar ao atingir meta
-input bool     DT_BlockAfterTarget    = true;          // Bloquear apos meta
-input bool     DT_CompoundDaily       = true;          // Juros compostos
-input int      DT_StartHour           = 3;
-input int      DT_EndHour             = 21;
+input group "══════ META DIARIA - CONTROLE MESTRE ══════"
+input bool              DT_Enable             = true;                    // [ATIVAR] META DIARIA
+input DailyTargetMode   DT_Mode               = DTARGET_AGGRESSIVE;      // Modo da Meta
+input double            DT_TargetPercent      = 1.0;                     // Meta diaria (%)
+input BalanceBaseMode   DT_BalanceBase        = BALANCE_START_DAY;       // Base do saldo
+input double            DT_FixedBalance       = 1000.0;                  // Saldo fixo
+input bool              DT_CompoundDaily      = true;                    // Juros compostos
+input bool              DT_CompoundOnTarget   = true;                    // Compor só se bateu meta
+
+input group "══════ META DIARIA - COMPORTAMENTO ══════"
+input bool              DT_CloseOnTarget      = true;                    // Fechar ao atingir meta
+input bool              DT_BlockAfterTarget   = true;                    // Bloquear após meta
+input bool              DT_OnlyInTimeWindow   = true;                    // Só no horário
+input double            DT_TargetTolerance    = 0.05;                    // Tolerância
+
+input group "══════ META DIARIA - HORARIOS ══════"
+input int               DT_StartHour          = 1;                       // Hora início
+input int               DT_StartMinute        = 0;                       // Minuto início
+input int               DT_EndHour            = 17;                      // Hora término
+input int               DT_EndMinute          = 0;                       // Minuto término
+input int               DT_AggressiveMinutes  = 60;                      // Min. antes (agressivo)
+input EndOfDayBehavior  DT_EndOfDayAction     = EOD_AGGRESSIVE_PUSH;     // Ação fim do dia
+
+input group "══════ META DIARIA - MODO AGRESSIVO ══════"
+input bool              DT_EnableAggressive   = true;                    // Ativar agressivo
+input AggressiveLevel   DT_MaxAggressiveLevel = AGG_LEVEL_5;             // Nível máximo
+input double            DT_AggLotMultiplier   = 2.0;                     // Mult. lote/nível
+input double            DT_AggThresholdReduce = 0.1;                     // Redução threshold
+input bool              DT_AggIgnoreFilters   = true;                    // Ignorar filtros
+input bool              DT_AggAllowAllIn      = true;                    // Permitir ALL-IN
+input int               DT_AggMaxPositions    = 10;                      // Máx. posições
+input double            DT_AggMaxRiskPercent  = 100.0;                   // Risco máximo (%)
+
+input group "══════ META DIARIA - OPERACAO FORCADA ══════"
+input bool              DT_ForceDailyTrade    = true;                    // Forçar operação
+input int               DT_ForceAfterMinutes  = 1;                       // Forçar após N min
+input int               DT_ForceAggressiveMin = 1;                       // Agressivo após N min
+input double            DT_ForceMinThreshold  = 0.3;                     // Threshold mínimo
+input int               DT_ForceMinSignals    = 1;                       // Mín. sinais
+input bool              DT_ForceIgnoreFilters = true;                    // Ignorar filtros
+input double            DT_ForceProgressiveReduce = 0.05;                // Redução/30min
+
+input group "══════ META DIARIA - PROTECAO ══════"
+input DailyProfitProtection DT_ProfitProtection = PROFIT_PROT_LOCK;      // Proteção após meta
+input double            DT_LockProfitPercent  = 50.0;                    // % a proteger
+input double            DT_TrailProfitStep    = 0.25;                    // Passo trailing
+input bool              DT_StopOnExtraProfit  = false;                   // Parar se lucro>meta
+
+input group "══════ META DIARIA - CONTROLE DE PERDA ══════"
+input double            DT_MaxDailyLoss       = 100.0;                   // Perda máxima (%)
+input bool              DT_StopOnMaxLoss      = false;                   // Parar na perda máx
+input bool              DT_RecoverOnAggressive = true;                   // Recuperar agressivo
+input double            DT_RecoveryMultiplier = 1.5;                     // Mult. recuperação
+
+input group "══════ META DIARIA - ESTATISTICAS ══════"
+input bool              DT_SaveDailyStats     = true;                    // Salvar estatísticas
+input bool              DT_ShowDailyPanel     = false;                   // Mostrar painel
+input bool              DT_AlertOnTarget      = true;                    // Alerta meta
+input bool              DT_AlertOnAggressive  = true;                    // Alerta agressivo
+
+input group "══════ LIMITES E PROTECAO ══════"
+input double            LP_MaxDailyLossPercent = 100.0;                  // Limite perda diária (%)
+input int               LP_MaxTradesPerDay    = 50;                      // Máx. trades/dia
+input double            LP_MaxDrawdownPercent = 100.0;                   // Drawdown máximo (%)
+input bool              LP_CloseOnDrawdown    = true;                    // Fechar se DD excedido
+input int               LP_DrawdownPauseMinutes = 58600;                 // Pausa após DD (min)
 
 //+------------------------------------------------------------------+
 //|                    VARIAVEIS GLOBAIS                              |
@@ -128,6 +225,7 @@ int hQQE_RSI = INVALID_HANDLE;
 datetime lastBarTime = 0;
 datetime lastBuyTime = 0;
 datetime lastSellTime = 0;
+datetime lastTradeTime = 0;
 
 // AKTE variables
 double g_akte_x_atual, g_akte_x_anterior;
@@ -155,12 +253,35 @@ double g_fhmi_hurst, g_fhmi_hurst_anterior;
 double g_fhmi_RS, g_fhmi_R, g_fhmi_S;
 double g_fhmi_momentum, g_fhmi_momentum_anterior;
 
-// Daily Target variables
-double g_dt_startBalance = 0;
-double g_dt_targetBalance = 0;
-bool g_dt_targetHit = false;
-bool g_dt_blocked = false;
-datetime g_dt_dayStart = 0;
+// Daily Target State
+struct DailyTargetState {
+   datetime    dayStart;
+   datetime    dayEnd;
+   double      startBalance;
+   double      targetAmount;
+   double      targetBalance;
+   double      currentPL;
+   double      highestPL;
+   double      lowestPL;
+   double      lockedProfit;
+   int         tradesOpened;
+   int         tradesClosed;
+   int         tradesWon;
+   int         tradesLost;
+   bool        targetHit;
+   bool        targetExceeded;
+   bool        aggressiveMode;
+   bool        forceMode;
+   bool        blocked;
+   datetime    targetHitTime;
+   datetime    aggressiveStartTime;
+   int         aggressiveTradesOpened;
+   double      aggressivePL;
+   AggressiveLevel currentAggLevel;
+   int         minutesWithoutTrade;
+};
+
+DailyTargetState g_dtState;
 
 #ifndef M_PI
    #define M_PI 3.14159265358979323846
@@ -197,13 +318,16 @@ int OnInit() {
    ArrayInitialize(g_scp_power_buffer, 0);
 
    // Init Daily Target
-   InitDailyTarget();
+   InitDailyTargetManager();
 
    Print("═══════════════════════════════════════════════════════════");
-   Print("   MAAbot Trainer: Indicadores + Meta Diaria");
+   Print("   MAAbot Trainer: Indicadores + Meta Diaria COMPLETA v2.0");
    Print("═══════════════════════════════════════════════════════════");
    Print(" Indicadores Ativos: ", CountActiveIndicators());
-   Print(" Meta Diaria: ", Enable_DailyTarget ? DoubleToString(DT_TargetPercent, 2) + "%" : "OFF");
+   Print(" Meta Diaria: ", DT_Enable ? DoubleToString(DT_TargetPercent, 2) + "%" : "OFF");
+   Print(" Modo: ", EnumToString(DT_Mode));
+   Print(" Modo Agressivo: ", DT_EnableAggressive ? "ON" : "OFF");
+   Print(" Operacao Forcada: ", DT_ForceDailyTrade ? "ON" : "OFF");
    Print(" TP: ", TakeProfitPoints, " | SL: ", StopLossPoints);
    Print("═══════════════════════════════════════════════════════════");
 
@@ -219,6 +343,8 @@ void OnDeinit(const int reason) {
    if(hATR_AKTE != INVALID_HANDLE) IndicatorRelease(hATR_AKTE);
    if(hEMA_IAE != INVALID_HANDLE) IndicatorRelease(hEMA_IAE);
    if(hQQE_RSI != INVALID_HANDLE) IndicatorRelease(hQQE_RSI);
+
+   PrintDailySummary();
 }
 
 //+------------------------------------------------------------------+
@@ -228,20 +354,35 @@ void OnTick() {
    datetime now = TimeCurrent();
 
    // Verificar meta diaria
-   if(Enable_DailyTarget) {
+   if(DT_Enable) {
       CheckDailyReset();
-      if(MonitorDailyTarget()) return; // Meta atingida, bloqueado
-      if(g_dt_blocked) return;
+      if(MonitorDailyTarget()) return;
+      if(g_dtState.blocked) return;
    }
+
+   // Verificar limites
+   if(CheckLimits()) return;
 
    // Verificar horario
    MqlDateTime dt; TimeToStruct(now, dt);
-   if(dt.hour < StartHour || dt.hour >= EndHour) return;
+   if(dt.hour < StartHour || dt.hour >= EndHour) {
+      // Fora do horário - verificar ação de fim do dia
+      if(DT_Enable && DT_EndOfDayAction == EOD_CLOSE_ALL) {
+         CloseAllPositions();
+      }
+      return;
+   }
 
    // Nova barra?
    datetime barTime = iTime(InpSymbol, InpTF, 0);
    if(barTime == lastBarTime) return;
    lastBarTime = barTime;
+
+   // Verificar modo agressivo
+   CheckAggressiveMode();
+
+   // Verificar operação forçada
+   CheckForceMode();
 
    // Obter sinais
    Signals S;
@@ -252,18 +393,28 @@ void OnTick() {
    double pL = 0, pS = 0;
    CalcProbabilities(S, pL, pS);
 
+   // Aplicar modificadores de modo agressivo/forçado
+   int minSignals = MinAgreeSignals;
+   double minProb = MinProbability;
+
+   if(g_dtState.aggressiveMode || g_dtState.forceMode) {
+      minSignals = GetAdjustedMinSignals();
+      minProb = GetAdjustedMinProbability();
+   }
+
    // Contar sinais concordantes
    int agreeL = CountAgree(S, +1);
    int agreeS = CountAgree(S, -1);
 
    // Verificar condicoes de entrada
-   bool wantBuy = AllowLong && (agreeL >= MinAgreeSignals) && (pL >= MinProbability);
-   bool wantSell = AllowShort && (agreeS >= MinAgreeSignals) && (pS >= MinProbability);
+   bool wantBuy = AllowLong && (agreeL >= minSignals) && (pL >= minProb);
+   bool wantSell = AllowShort && (agreeS >= minSignals) && (pS >= minProb);
 
    // Verificar se ja tem posicao
-   bool hasPos = HasPosition();
+   int posCount = CountPositions();
+   int maxPos = g_dtState.aggressiveMode ? DT_AggMaxPositions : 1;
 
-   if(!hasPos) {
+   if(posCount < maxPos) {
       if(wantBuy && wantSell) {
          if(pL >= pS) OpenBuy();
          else OpenSell();
@@ -866,98 +1017,405 @@ int CalcQQESignal() {
 }
 
 //+------------------------------------------------------------------+
-//|                    META DIARIA                                    |
+//|              META DIARIA - INICIALIZACAO                          |
 //+------------------------------------------------------------------+
-void InitDailyTarget() {
-   if(!Enable_DailyTarget) return;
+void InitDailyTargetManager() {
+   if(!DT_Enable) return;
 
-   g_dt_startBalance = AccountInfoDouble(ACCOUNT_BALANCE);
-   g_dt_targetBalance = g_dt_startBalance * (1.0 + DT_TargetPercent / 100.0);
-   g_dt_targetHit = false;
-   g_dt_blocked = false;
+   ZeroMemory(g_dtState);
+   ResetDailyState();
 
-   MqlDateTime dt; TimeToStruct(TimeCurrent(), dt);
-   dt.hour = 0; dt.min = 0; dt.sec = 0;
-   g_dt_dayStart = StructToTime(dt);
-
-   Print("Meta Diaria: ", DoubleToString(DT_TargetPercent, 2), "% | Alvo: $", DoubleToString(g_dt_targetBalance, 2));
+   Print("=== GERENCIADOR DE META DIARIA INICIADO ===");
+   Print("Meta Diária: ", DoubleToString(DT_TargetPercent, 2), "%");
+   Print("Saldo Base: ", DoubleToString(g_dtState.startBalance, 2));
+   Print("Meta em $: ", DoubleToString(g_dtState.targetAmount, 2));
+   Print("Saldo Alvo: ", DoubleToString(g_dtState.targetBalance, 2));
+   Print("Modo: ", EnumToString(DT_Mode));
+   Print("=====================================");
 }
 
+void ResetDailyState() {
+   datetime now = TimeCurrent();
+   MqlDateTime dt;
+   TimeToStruct(now, dt);
+
+   dt.hour = DT_StartHour;
+   dt.min = DT_StartMinute;
+   dt.sec = 0;
+   g_dtState.dayStart = StructToTime(dt);
+
+   dt.hour = DT_EndHour;
+   dt.min = DT_EndMinute;
+   g_dtState.dayEnd = StructToTime(dt);
+
+   g_dtState.startBalance = CalculateBaseBalance();
+   g_dtState.targetAmount = g_dtState.startBalance * (DT_TargetPercent / 100.0);
+   g_dtState.targetBalance = g_dtState.startBalance + g_dtState.targetAmount;
+
+   g_dtState.currentPL = 0.0;
+   g_dtState.highestPL = 0.0;
+   g_dtState.lowestPL = 0.0;
+   g_dtState.lockedProfit = 0.0;
+   g_dtState.tradesOpened = 0;
+   g_dtState.tradesClosed = 0;
+   g_dtState.tradesWon = 0;
+   g_dtState.tradesLost = 0;
+   g_dtState.targetHit = false;
+   g_dtState.targetExceeded = false;
+   g_dtState.aggressiveMode = false;
+   g_dtState.forceMode = false;
+   g_dtState.blocked = false;
+   g_dtState.targetHitTime = 0;
+   g_dtState.aggressiveStartTime = 0;
+   g_dtState.aggressiveTradesOpened = 0;
+   g_dtState.aggressivePL = 0.0;
+   g_dtState.currentAggLevel = AGG_LEVEL_1;
+   g_dtState.minutesWithoutTrade = 0;
+}
+
+double CalculateBaseBalance() {
+   double balance = AccountInfoDouble(ACCOUNT_BALANCE);
+   double equity = AccountInfoDouble(ACCOUNT_EQUITY);
+
+   switch(DT_BalanceBase) {
+      case BALANCE_START_DAY:
+         if(g_dtState.startBalance > 0) return g_dtState.startBalance;
+         return balance;
+      case BALANCE_CURRENT:
+         return equity;
+      case BALANCE_FIXED:
+         return DT_FixedBalance;
+      default:
+         return balance;
+   }
+}
+
+//+------------------------------------------------------------------+
+//|              META DIARIA - VERIFICACOES                           |
+//+------------------------------------------------------------------+
 void CheckDailyReset() {
    datetime now = TimeCurrent();
    MqlDateTime dtNow, dtStart;
    TimeToStruct(now, dtNow);
-   TimeToStruct(g_dt_dayStart, dtStart);
+   TimeToStruct(g_dtState.dayStart, dtStart);
 
    if(dtNow.day != dtStart.day || dtNow.mon != dtStart.mon || dtNow.year != dtStart.year) {
-      // Novo dia
-      if(DT_CompoundDaily && g_dt_targetHit) {
-         g_dt_startBalance = AccountInfoDouble(ACCOUNT_BALANCE);
-      } else if(DT_CompoundDaily) {
-         g_dt_startBalance = AccountInfoDouble(ACCOUNT_BALANCE);
+      // Novo dia - aplicar juros compostos se configurado
+      if(DT_CompoundDaily) {
+         if(DT_CompoundOnTarget && g_dtState.targetHit) {
+            g_dtState.startBalance = AccountInfoDouble(ACCOUNT_BALANCE);
+         } else if(!DT_CompoundOnTarget) {
+            g_dtState.startBalance = AccountInfoDouble(ACCOUNT_BALANCE);
+         }
       }
 
-      g_dt_targetBalance = g_dt_startBalance * (1.0 + DT_TargetPercent / 100.0);
-      g_dt_targetHit = false;
-      g_dt_blocked = false;
-
-      dtNow.hour = 0; dtNow.min = 0; dtNow.sec = 0;
-      g_dt_dayStart = StructToTime(dtNow);
-
-      Print("Novo dia - Meta: $", DoubleToString(g_dt_targetBalance - g_dt_startBalance, 2));
+      ResetDailyState();
+      Print("═══ NOVO DIA DE TRADING ═══");
+      Print("Meta: $", DoubleToString(g_dtState.targetAmount, 2));
    }
 }
 
 bool MonitorDailyTarget() {
-   if(!Enable_DailyTarget) return false;
-   if(g_dt_blocked) return true;
-
-   // Verificar horario
-   MqlDateTime dt; TimeToStruct(TimeCurrent(), dt);
-   if(dt.hour < DT_StartHour || dt.hour >= DT_EndHour) return false;
+   if(!DT_Enable) return false;
+   if(g_dtState.blocked) return true;
 
    double equity = AccountInfoDouble(ACCOUNT_EQUITY);
+   g_dtState.currentPL = equity - g_dtState.startBalance;
+
+   // Atualizar maior/menor P/L
+   if(g_dtState.currentPL > g_dtState.highestPL) g_dtState.highestPL = g_dtState.currentPL;
+   if(g_dtState.currentPL < g_dtState.lowestPL) g_dtState.lowestPL = g_dtState.currentPL;
+
+   // Verificar horário
+   if(DT_OnlyInTimeWindow) {
+      MqlDateTime dt; TimeToStruct(TimeCurrent(), dt);
+      if(dt.hour < DT_StartHour || dt.hour >= DT_EndHour) return false;
+   }
 
    // Meta atingida?
-   if(!g_dt_targetHit && equity >= g_dt_targetBalance) {
-      g_dt_targetHit = true;
+   double targetWithTolerance = g_dtState.targetBalance * (1.0 - DT_TargetTolerance);
+   if(!g_dtState.targetHit && equity >= targetWithTolerance) {
+      g_dtState.targetHit = true;
+      g_dtState.targetHitTime = TimeCurrent();
+
       Print("═══════════════════════════════════════════════════════════");
       Print("   META DIARIA ATINGIDA!");
-      Print("   Lucro: $", DoubleToString(equity - g_dt_startBalance, 2));
+      Print("   Lucro: $", DoubleToString(g_dtState.currentPL, 2));
+      Print("   Percentual: ", DoubleToString((g_dtState.currentPL / g_dtState.startBalance) * 100, 2), "%");
       Print("═══════════════════════════════════════════════════════════");
 
-      if(DT_CloseOnTarget) CloseAllPositions();
-      if(DT_BlockAfterTarget) g_dt_blocked = true;
+      if(DT_AlertOnTarget) Alert("META DIÁRIA ATINGIDA! Lucro: $", DoubleToString(g_dtState.currentPL, 2));
 
+      // Aplicar proteção de lucro
+      ApplyProfitProtection();
+
+      if(DT_CloseOnTarget) CloseAllPositions();
+      if(DT_BlockAfterTarget) {
+         g_dtState.blocked = true;
+         return true;
+      }
+   }
+
+   // Perda máxima?
+   double maxLoss = g_dtState.startBalance * (DT_MaxDailyLoss / 100.0);
+   if(g_dtState.currentPL <= -maxLoss) {
+      Print("═══ PERDA MAXIMA DIARIA ATINGIDA ═══");
+      Print("Perda: $", DoubleToString(MathAbs(g_dtState.currentPL), 2));
+
+      if(DT_StopOnMaxLoss) {
+         CloseAllPositions();
+         g_dtState.blocked = true;
+         return true;
+      } else if(DT_RecoverOnAggressive) {
+         // Ativar modo agressivo para recuperação
+         if(!g_dtState.aggressiveMode) {
+            ActivateAggressiveMode();
+         }
+      }
+   }
+
+   // Verificar proteção de lucro após meta
+   if(g_dtState.targetHit && DT_ProfitProtection != PROFIT_PROT_OFF) {
+      if(!CheckProfitProtection()) {
+         CloseAllPositions();
+         g_dtState.blocked = true;
+         return true;
+      }
+   }
+
+   return false;
+}
+
+void ApplyProfitProtection() {
+   switch(DT_ProfitProtection) {
+      case PROFIT_PROT_HALF:
+         g_dtState.lockedProfit = g_dtState.currentPL * 0.5;
+         break;
+      case PROFIT_PROT_TRAIL:
+      case PROFIT_PROT_LOCK:
+         g_dtState.lockedProfit = g_dtState.currentPL * (DT_LockProfitPercent / 100.0);
+         break;
+      default:
+         break;
+   }
+}
+
+bool CheckProfitProtection() {
+   if(DT_ProfitProtection == PROFIT_PROT_OFF) return true;
+
+   // Se o lucro caiu abaixo do lucro travado, sair
+   if(g_dtState.currentPL < g_dtState.lockedProfit) {
+      Print("Proteção de lucro ativada. Lucro travado: $", DoubleToString(g_dtState.lockedProfit, 2));
+      return false;
+   }
+
+   // Trailing do lucro
+   if(DT_ProfitProtection == PROFIT_PROT_TRAIL) {
+      double newLock = g_dtState.currentPL * (DT_LockProfitPercent / 100.0);
+      if(newLock > g_dtState.lockedProfit) {
+         g_dtState.lockedProfit = newLock;
+      }
+   }
+
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//|              META DIARIA - MODO AGRESSIVO                         |
+//+------------------------------------------------------------------+
+void CheckAggressiveMode() {
+   if(!DT_Enable || !DT_EnableAggressive) return;
+   if(g_dtState.targetHit) return;
+   if(DT_Mode != DTARGET_AGGRESSIVE) return;
+
+   datetime now = TimeCurrent();
+   MqlDateTime dt; TimeToStruct(now, dt);
+
+   // Calcular minutos restantes
+   int currentMinutes = dt.hour * 60 + dt.min;
+   int endMinutes = DT_EndHour * 60 + DT_EndMinute;
+   int remainingMinutes = endMinutes - currentMinutes;
+
+   if(remainingMinutes <= DT_AggressiveMinutes && !g_dtState.aggressiveMode) {
+      ActivateAggressiveMode();
+   }
+
+   // Escalar nível de agressividade conforme o tempo
+   if(g_dtState.aggressiveMode) {
+      UpdateAggressiveLevel(remainingMinutes);
+   }
+}
+
+void ActivateAggressiveMode() {
+   g_dtState.aggressiveMode = true;
+   g_dtState.aggressiveStartTime = TimeCurrent();
+   g_dtState.currentAggLevel = AGG_LEVEL_1;
+
+   Print("═══ MODO AGRESSIVO ATIVADO ═══");
+   Print("Nível: ", EnumToString(g_dtState.currentAggLevel));
+
+   if(DT_AlertOnAggressive) Alert("MODO AGRESSIVO ATIVADO!");
+}
+
+void UpdateAggressiveLevel(int remainingMinutes) {
+   AggressiveLevel newLevel = AGG_LEVEL_1;
+
+   if(remainingMinutes <= 10) newLevel = AGG_LEVEL_5;
+   else if(remainingMinutes <= 20) newLevel = AGG_LEVEL_4;
+   else if(remainingMinutes <= 30) newLevel = AGG_LEVEL_3;
+   else if(remainingMinutes <= 45) newLevel = AGG_LEVEL_2;
+
+   // Limitar ao nível máximo configurado
+   if(newLevel > DT_MaxAggressiveLevel) newLevel = DT_MaxAggressiveLevel;
+
+   if(newLevel != g_dtState.currentAggLevel) {
+      g_dtState.currentAggLevel = newLevel;
+      Print("Nível agressivo atualizado: ", EnumToString(newLevel));
+   }
+}
+
+//+------------------------------------------------------------------+
+//|              META DIARIA - OPERACAO FORCADA                       |
+//+------------------------------------------------------------------+
+void CheckForceMode() {
+   if(!DT_Enable || !DT_ForceDailyTrade) return;
+   if(g_dtState.targetHit || g_dtState.blocked) return;
+
+   // Calcular minutos sem trade
+   datetime now = TimeCurrent();
+   if(lastTradeTime == 0) lastTradeTime = g_dtState.dayStart;
+
+   int minutesSinceTrade = (int)((now - lastTradeTime) / 60);
+   g_dtState.minutesWithoutTrade = minutesSinceTrade;
+
+   if(minutesSinceTrade >= DT_ForceAfterMinutes && !g_dtState.forceMode) {
+      g_dtState.forceMode = true;
+      Print("═══ MODO FORCADO ATIVADO ═══");
+      Print("Minutos sem trade: ", minutesSinceTrade);
+   }
+
+   // Ativar modo agressivo forçado
+   if(minutesSinceTrade >= DT_ForceAggressiveMin && !g_dtState.aggressiveMode) {
+      ActivateAggressiveMode();
+   }
+}
+
+int GetAdjustedMinSignals() {
+   int minSig = MinAgreeSignals;
+
+   if(g_dtState.forceMode) {
+      minSig = DT_ForceMinSignals;
+   }
+
+   if(g_dtState.aggressiveMode) {
+      // Reduzir progressivamente baseado no nível
+      int reduction = (int)g_dtState.currentAggLevel - 1;
+      minSig = MathMax(1, minSig - reduction);
+
+      // Nível 5 = qualquer sinal
+      if(g_dtState.currentAggLevel == AGG_LEVEL_5) minSig = 1;
+   }
+
+   return minSig;
+}
+
+double GetAdjustedMinProbability() {
+   double minProb = MinProbability;
+
+   if(g_dtState.forceMode) {
+      minProb = DT_ForceMinThreshold;
+
+      // Redução progressiva a cada 30 minutos
+      int periods = g_dtState.minutesWithoutTrade / 30;
+      minProb -= periods * DT_ForceProgressiveReduce;
+      minProb = MathMax(0.1, minProb);
+   }
+
+   if(g_dtState.aggressiveMode) {
+      // Reduzir baseado no nível
+      double reduction = ((int)g_dtState.currentAggLevel - 1) * DT_AggThresholdReduce;
+      minProb -= reduction;
+      minProb = MathMax(0.1, minProb);
+
+      // Nível 5 = qualquer probabilidade
+      if(g_dtState.currentAggLevel == AGG_LEVEL_5) minProb = 0.1;
+   }
+
+   return minProb;
+}
+
+//+------------------------------------------------------------------+
+//|              LIMITES E PROTECAO                                   |
+//+------------------------------------------------------------------+
+bool CheckLimits() {
+   // Verificar máximo de trades por dia
+   if(g_dtState.tradesOpened >= LP_MaxTradesPerDay) {
       return true;
    }
 
-   // Perda maxima?
-   double maxLoss = g_dt_startBalance * (DT_MaxDailyLoss / 100.0);
-   double currentPL = equity - g_dt_startBalance;
-   if(currentPL <= -maxLoss) {
-      Print("PERDA MAXIMA DIARIA: $", DoubleToString(MathAbs(currentPL), 2));
+   // Verificar drawdown máximo
+   double equity = AccountInfoDouble(ACCOUNT_EQUITY);
+   double drawdown = (g_dtState.highestPL - g_dtState.currentPL) / g_dtState.startBalance * 100;
+
+   if(drawdown >= LP_MaxDrawdownPercent) {
+      if(LP_CloseOnDrawdown) {
+         Print("DRAWDOWN MAXIMO ATINGIDO: ", DoubleToString(drawdown, 2), "%");
+         CloseAllPositions();
+         g_dtState.blocked = true;
+      }
+      return true;
+   }
+
+   // Verificar perda diária máxima
+   double lossPercent = MathAbs(g_dtState.lowestPL) / g_dtState.startBalance * 100;
+   if(lossPercent >= LP_MaxDailyLossPercent) {
+      Print("PERDA DIARIA MAXIMA: ", DoubleToString(lossPercent, 2), "%");
       CloseAllPositions();
-      g_dt_blocked = true;
+      g_dtState.blocked = true;
       return true;
    }
 
    return false;
+}
+
+//+------------------------------------------------------------------+
+//|              ESTATISTICAS                                         |
+//+------------------------------------------------------------------+
+void PrintDailySummary() {
+   if(!DT_Enable) return;
+
+   Print("═══════════════════════════════════════════════════════════");
+   Print("            RESUMO DO DIA");
+   Print("═══════════════════════════════════════════════════════════");
+   Print("Saldo Inicial: $", DoubleToString(g_dtState.startBalance, 2));
+   Print("Saldo Final: $", DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2));
+   Print("P/L do Dia: $", DoubleToString(g_dtState.currentPL, 2));
+   Print("Maior P/L: $", DoubleToString(g_dtState.highestPL, 2));
+   Print("Menor P/L: $", DoubleToString(g_dtState.lowestPL, 2));
+   Print("Trades Abertos: ", g_dtState.tradesOpened);
+   Print("Meta Atingida: ", g_dtState.targetHit ? "SIM" : "NAO");
+   Print("Modo Agressivo Usado: ", g_dtState.aggressiveMode ? "SIM" : "NAO");
+   Print("═══════════════════════════════════════════════════════════");
 }
 
 //+------------------------------------------------------------------+
 //|                    FUNCOES DE TRADE                               |
 //+------------------------------------------------------------------+
-bool HasPosition() {
+int CountPositions() {
+   int count = 0;
    int total = PositionsTotal();
    for(int i = 0; i < total; i++) {
       ulong tk = PositionGetTicket(i);
       if(PositionSelectByTicket(tk)) {
          if(PositionGetString(POSITION_SYMBOL) == InpSymbol && PositionGetInteger(POSITION_MAGIC) == Magic)
-            return true;
+            count++;
       }
    }
-   return false;
+   return count;
+}
+
+bool HasPosition() {
+   return CountPositions() > 0;
 }
 
 void OpenBuy() {
@@ -969,6 +1427,10 @@ void OpenBuy() {
 
    if(trade.Buy(lot, InpSymbol, ask, sl, tp, "Buy")) {
       lastBuyTime = TimeCurrent();
+      lastTradeTime = TimeCurrent();
+      g_dtState.tradesOpened++;
+      if(g_dtState.aggressiveMode) g_dtState.aggressiveTradesOpened++;
+      g_dtState.forceMode = false; // Reset force mode após trade
    }
 }
 
@@ -981,12 +1443,31 @@ void OpenSell() {
 
    if(trade.Sell(lot, InpSymbol, bid, sl, tp, "Sell")) {
       lastSellTime = TimeCurrent();
+      lastTradeTime = TimeCurrent();
+      g_dtState.tradesOpened++;
+      if(g_dtState.aggressiveMode) g_dtState.aggressiveTradesOpened++;
+      g_dtState.forceMode = false; // Reset force mode após trade
    }
 }
 
 double CalcLot(int sl_pts) {
    double equity = AccountInfoDouble(ACCOUNT_EQUITY);
-   double risk_money = equity * (RiskPercent / 100.0);
+   double riskPct = RiskPercent;
+
+   // Ajustar risco no modo agressivo
+   if(g_dtState.aggressiveMode) {
+      double multiplier = 1.0 + ((int)g_dtState.currentAggLevel - 1) * (DT_AggLotMultiplier - 1.0) / 4.0;
+      riskPct *= multiplier;
+      riskPct = MathMin(riskPct, DT_AggMaxRiskPercent);
+   }
+
+   // Ajustar para recuperação
+   if(g_dtState.currentPL < 0 && DT_RecoverOnAggressive) {
+      riskPct *= DT_RecoveryMultiplier;
+      riskPct = MathMin(riskPct, DT_AggMaxRiskPercent);
+   }
+
+   double risk_money = equity * (riskPct / 100.0);
    double pt = SymbolInfoDouble(InpSymbol, SYMBOL_POINT);
    double tick_size = SymbolInfoDouble(InpSymbol, SYMBOL_TRADE_TICK_SIZE);
    double tick_value = SymbolInfoDouble(InpSymbol, SYMBOL_TRADE_TICK_VALUE);
@@ -1013,6 +1494,7 @@ void CloseAllPositions() {
       if(PositionSelectByTicket(tk)) {
          if(PositionGetString(POSITION_SYMBOL) == InpSymbol && PositionGetInteger(POSITION_MAGIC) == Magic) {
             trade.PositionClose(tk);
+            g_dtState.tradesClosed++;
          }
       }
    }
