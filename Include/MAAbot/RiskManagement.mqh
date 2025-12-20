@@ -98,10 +98,17 @@ double LotsForRiskPercent(double percent, int sl_points) {
    return baseLot;
 }
 
-// Ajusta o lote para caber na margem disponível
+// Ajusta o lote AUTOMATICAMENTE para caber na margem disponível
+// ADAPTATIVO: Funciona com qualquer saldo ($100, $1000, $10000, etc)
 double AdjustLotForMargin(double lot, double minlot, double step) {
    double freeMargin = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
-   if(freeMargin <= 0) return minlot;
+   double balance = AccountInfoDouble(ACCOUNT_BALANCE);
+
+   // Se não há margem livre, retorna 0 para bloquear
+   if(freeMargin <= 0) {
+      Print("[MARGIN] Sem margem livre! Balance=$", DoubleToString(balance, 2));
+      return 0;
+   }
 
    // Calcula margem necessária para 1 lote
    double marginRequired = 0.0;
@@ -111,24 +118,71 @@ double AdjustLotForMargin(double lot, double minlot, double step) {
 
    if(marginRequired <= 0) return lot;
 
-   // Calcula o lote máximo que cabe na margem livre (com 10% de segurança)
-   double maxLotByMargin = (freeMargin * 0.9) / marginRequired;
+   // Calcula margem necessária para o lote mínimo
+   double minLotMargin = minlot * marginRequired;
 
-   // Se o lote calculado é maior que o permitido pela margem, ajusta
-   if(lot > maxLotByMargin) {
-      int k = (int)MathFloor(maxLotByMargin / step);
-      lot = k * step;
-      lot = MathMax(minlot, lot);
-
-      // Se ainda assim não couber, retorna 0 para bloquear a entrada
-      if(lot * marginRequired > freeMargin * 0.95) {
-         Print("[MARGIN] Margem insuficiente! Lote reduzido de ", lot, " para ", minlot,
-               " | FreeMargin=", freeMargin, " | MarginReq/lot=", marginRequired);
-         return minlot;
+   // Se nem o lote mínimo cabe, retorna 0 e avisa
+   if(minLotMargin > freeMargin * 0.95) {
+      static datetime lastWarn = 0;
+      if(TimeCurrent() - lastWarn >= 60) {
+         Print("===========================================");
+         Print("[MARGIN] SALDO INSUFICIENTE PARA OPERAR!");
+         Print("  Balance: $", DoubleToString(balance, 2));
+         Print("  FreeMargin: $", DoubleToString(freeMargin, 2));
+         Print("  Lote mínimo: ", minlot);
+         Print("  Margem p/ lote mínimo: $", DoubleToString(minLotMargin, 2));
+         Print("  Margem p/ 1 lote: $", DoubleToString(marginRequired, 2));
+         Print("  NECESSÁRIO: ~$", DoubleToString(minLotMargin * 1.2, 2), " de saldo");
+         Print("===========================================");
+         lastWarn = TimeCurrent();
       }
+      return 0;
+   }
+
+   // Calcula o lote máximo seguro (usa 80% da margem para buffer)
+   double safetyFactor = 0.80;
+   double maxLotByMargin = (freeMargin * safetyFactor) / marginRequired;
+
+   // Arredonda para baixo no step
+   int k = (int)MathFloor(maxLotByMargin / step);
+   double maxLot = k * step;
+   maxLot = MathMax(minlot, maxLot);
+
+   // Se o lote calculado excede o permitido, ajusta
+   if(lot > maxLot) {
+      static datetime lastAdjust = 0;
+      if(TimeCurrent() - lastAdjust >= 30) {
+         Print("[MARGIN] Lote auto-ajustado: ", DoubleToString(lot, 2), " -> ", DoubleToString(maxLot, 2),
+               " | Balance=$", DoubleToString(balance, 2),
+               " | FreeMargin=$", DoubleToString(freeMargin, 2));
+         lastAdjust = TimeCurrent();
+      }
+      lot = maxLot;
    }
 
    return lot;
+}
+
+// Retorna o lote máximo permitido para o saldo atual
+double GetMaxLotByBalance() {
+   double freeMargin = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
+   double minlot = SymbolInfoDouble(InpSymbol, SYMBOL_VOLUME_MIN);
+   double step = SymbolInfoDouble(InpSymbol, SYMBOL_VOLUME_STEP);
+
+   if(freeMargin <= 0) return 0;
+
+   double marginRequired = 0.0;
+   if(!OrderCalcMargin(ORDER_TYPE_BUY, InpSymbol, 1.0, SymbolInfoDouble(InpSymbol, SYMBOL_ASK), marginRequired)) {
+      return minlot;
+   }
+
+   if(marginRequired <= 0) return minlot;
+
+   double maxLot = (freeMargin * 0.80) / marginRequired;
+   int k = (int)MathFloor(maxLot / step);
+   maxLot = k * step;
+
+   return MathMax(minlot, MathMin(maxLot, SymbolInfoDouble(InpSymbol, SYMBOL_VOLUME_MAX)));
 }
 
 //-------------------------- DD GUARD / THROTTLE ----------------------------//
