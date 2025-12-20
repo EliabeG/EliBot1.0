@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                                     Signals.mqh  |
-//|   MAAbot v2.6.0 - Sinais com Indicadores Individuais             |
+//|   MAAbot v2.7.0 - Sinais com Indicadores Avançados               |
 //|                                     Autor: Eliabe N Oliveira     |
 //+------------------------------------------------------------------+
 #ifndef __MAABOT_SIGNALS_MQH__
@@ -20,23 +20,12 @@ bool GetSignals(Signals &S) {
    S.c0 = c[0];
 
    //================================================================
-   // 1. MA CROSS - Cruzamento de Médias
+   // 1. AKTE (Adaptive Kalman Trend Estimator)
    //================================================================
-   if(Enable_MACross) {
-      double emaF = 0.0, emaS = 0.0;
-      if(hEMAfast == INVALID_HANDLE) hEMAfast = iMA(InpSymbol, InpTF, EMA_Fast, 0, MODE_EMA, PRICE_CLOSE);
-      if(hEMAslow == INVALID_HANDLE) hEMAslow = iMA(InpSymbol, InpTF, EMA_Slow, 0, MODE_EMA, PRICE_CLOSE);
-
-      GetBuf(hEMAfast, 0, emaF, 0); GetBuf(hEMAslow, 0, emaS, 0);
-      S.emaF = emaF; S.emaS = emaS;
-      g_emaFastVal = emaF; g_emaSlowVal = emaS;
-
-      if(emaF > emaS && S.c0 > emaS) S.mac = +1;
-      else if(emaF < emaS && S.c0 < emaS) S.mac = -1;
-      else S.mac = 0;
+   if(Enable_AKTE) {
+      S.akte = CalcAKTESignal(InpSymbol, InpTF);
    } else {
-      S.mac = 0;
-      S.emaF = 0; S.emaS = 0;
+      S.akte = 0;
    }
 
    //================================================================
@@ -56,30 +45,12 @@ bool GetSignals(Signals &S) {
    }
 
    //================================================================
-   // 3. BOLLINGER BANDS
+   // 3. PVP (Polynomial Velocity Predictor)
    //================================================================
-   if(Enable_BBands) {
-      if(hBB == INVALID_HANDLE) hBB = iBands(InpSymbol, InpTF, BB_Period, 0, BB_Dev, PRICE_CLOSE);
-
-      double up = 0.0, md = 0.0, lw = 0.0;
-      GetBuf(hBB, 0, md, 0); GetBuf(hBB, 1, up, 0); GetBuf(hBB, 2, lw, 0);
-      g_bbUpper = up; g_bbMiddle = md; g_bbLower = lw;
-
-      if(S.c0 < lw) S.bb = +1;
-      else if(S.c0 > up) S.bb = -1;
-      else S.bb = 0;
+   if(Enable_PVP) {
+      S.pvp = CalcPVPSignal(InpSymbol, InpTF);
    } else {
-      S.bb = 0;
-      g_bbUpper = 0; g_bbMiddle = 0; g_bbLower = 0;
-   }
-
-   //================================================================
-   // 4. SUPERTREND
-   //================================================================
-   if(Enable_Supertrend) {
-      S.st = CalcSupertrendSignalCached(InpSymbol, InpTF, ST_ATR_Period, ST_Mult, hATR_ST_INP);
-   } else {
-      S.st = 0;
+      S.pvp = 0;
    }
 
    //================================================================
@@ -91,25 +62,21 @@ bool GetSignals(Signals &S) {
    g_currentATR = atr;
 
    //================================================================
-   // 5. AMA/KAMA - Média Adaptativa
+   // 4. IAE (Integral Arc Efficiency)
    //================================================================
-   if(Enable_AMA) {
-      int n = ArraySize(c);
-      double kama = CalcKAMA(c, n, AMA_ER_Period, AMA_Fast, AMA_Slow);
-      double kama_prev = CalcKAMAWithOffset(c, n, 1, AMA_ER_Period, AMA_Fast, AMA_Slow);
-      double slope = kama - kama_prev;
-      double pt = Pt();
-      bool atr_ok = (pt > 0.0) ? (atr <= AMA_ATR_FilterMult * pt * StopLossPoints) : true;
-      g_kamaValue = kama; g_kamaSlope = slope;
-
-      if(atr_ok) {
-         if(slope > 0.0 && S.c0 > kama) S.ama = +1;
-         else if(slope < 0.0 && S.c0 < kama) S.ama = -1;
-         else S.ama = 0;
-      } else S.ama = 0;
+   if(Enable_IAE) {
+      S.iae = CalcIAESignal(InpSymbol, InpTF);
    } else {
-      S.ama = 0;
-      g_kamaValue = 0; g_kamaSlope = 0;
+      S.iae = 0;
+   }
+
+   //================================================================
+   // 5. SCP (Spectral Cycle Phaser)
+   //================================================================
+   if(Enable_SCP) {
+      S.scp = CalcSCPSignal(InpSymbol, InpTF);
+   } else {
+      S.scp = 0;
    }
 
    //================================================================
@@ -122,19 +89,12 @@ bool GetSignals(Signals &S) {
    }
 
    //================================================================
-   // 7. VWAP
+   // 7. FHMI (Fractal Hurst Memory Index)
    //================================================================
-   if(Enable_VWAP) {
-      double vw = 0.0;
-      if(GetSessionVWAP(InpSymbol, VWAP_TF, VWAP_UseRealVolume, vw)) {
-         S.vwapv = vw; g_currentVWAP = vw;
-         if(S.c0 > vw) S.vwap = +1;
-         else if(S.c0 < vw) S.vwap = -1;
-         else S.vwap = 0;
-      } else { S.vwap = 0; S.vwapv = 0.0; }
+   if(Enable_FHMI) {
+      S.fhmi = CalcFHMISignal(InpSymbol, InpTF);
    } else {
-      S.vwap = 0; S.vwapv = 0.0;
-      g_currentVWAP = 0;
+      S.fhmi = 0;
    }
 
    //================================================================
@@ -169,14 +129,13 @@ bool GetSignals(Signals &S) {
 int CountAgree(const Signals &S, int dir) {
    int c = 0;
 
-   // Só conta se o indicador está ativo
-   if(Enable_MACross && S.mac * dir > 0) c++;
+   if(Enable_AKTE && S.akte * dir > 0) c++;
    if(Enable_RSI && S.rsi * dir > 0) c++;
-   if(Enable_BBands && S.bb * dir > 0) c++;
-   if(Enable_Supertrend && S.st * dir > 0) c++;
-   if(Enable_AMA && S.ama * dir > 0) c++;
+   if(Enable_PVP && S.pvp * dir > 0) c++;
+   if(Enable_IAE && S.iae * dir > 0) c++;
+   if(Enable_SCP && S.scp * dir > 0) c++;
    if(Enable_HeikinAshi && S.ha * dir > 0) c++;
-   if(Enable_VWAP && S.vwap * dir > 0) c++;
+   if(Enable_FHMI && S.fhmi * dir > 0) c++;
    if(Enable_Momentum && S.mom * dir > 0) c++;
    if(Enable_QQE && S.qqe * dir > 0) c++;
 
@@ -187,23 +146,21 @@ int CountAgree(const Signals &S, int dir) {
 //| Calcula probabilidades (respeita indicadores ativos)             |
 //+------------------------------------------------------------------+
 void Probabilities(const Signals &S, double &pL, double &pS) {
-   // Estrutura para sinais e pesos
    struct P { int s; double w; bool active; };
    P a[9] = {
-      {S.mac, GetWeight_MACross(), Enable_MACross},
+      {S.akte, GetWeight_AKTE(), Enable_AKTE},
       {S.rsi, GetWeight_RSI(), Enable_RSI},
-      {S.bb, GetWeight_BBands(), Enable_BBands},
-      {S.st, GetWeight_Supertrend(), Enable_Supertrend},
-      {S.ama, GetWeight_AMA(), Enable_AMA},
+      {S.pvp, GetWeight_PVP(), Enable_PVP},
+      {S.iae, GetWeight_IAE(), Enable_IAE},
+      {S.scp, GetWeight_SCP(), Enable_SCP},
       {S.ha, GetWeight_Heikin(), Enable_HeikinAshi},
-      {S.vwap, GetWeight_VWAP(), Enable_VWAP},
+      {S.fhmi, GetWeight_FHMI(), Enable_FHMI},
       {S.mom, GetWeight_Momentum(), Enable_Momentum},
       {S.qqe, GetWeight_QQE(), Enable_QQE}
    };
 
    double lw = 0, sw = 0;
    for(int i = 0; i < 9; i++) {
-      // Só considera indicadores ativos
       if(!a[i].active) continue;
 
       if(a[i].s > 0) lw += a[i].w;
@@ -248,9 +205,9 @@ int AnchorSignal() {
 double EffThr(const Signals &S, int dir, int anchorSig) {
    double t = BaseThr();
 
-   // Só aplica boost se o indicador está ativo
-   if(Enable_Supertrend && S.st * dir > 0) t -= ThrBoost_Struct;
-   if(Enable_VWAP && S.vwap * dir > 0) t -= ThrBoost_Struct * 0.5;
+   // Boost baseado em indicadores de tendência
+   if(Enable_IAE && S.iae * dir > 0) t -= ThrBoost_Struct;
+   if(Enable_FHMI && S.fhmi * dir > 0) t -= ThrBoost_Struct * 0.5;
    if(UseAnchor && anchorSig * dir > 0) t -= ThrBoost_Anchor;
 
    return MathMin(0.85, MathMax(0.50, t));
@@ -264,26 +221,23 @@ bool StructureOK(const Signals &S, int dir) {
 
    if(dir > 0) {
       int score = 0;
-      if(Enable_Supertrend && S.st > 0) score++;
-      if(Enable_VWAP && S.vwap > 0) score++;
-      if(Enable_MACross && S.emaF > S.emaS) score++;
+      if(Enable_IAE && S.iae > 0) score++;
+      if(Enable_FHMI && S.fhmi > 0) score++;
+      if(Enable_AKTE && S.akte > 0) score++;
 
-      // Ajusta requisito baseado em indicadores ativos
-      int required = 2;
-      int structIndicators = (Enable_Supertrend ? 1 : 0) + (Enable_VWAP ? 1 : 0) + (Enable_MACross ? 1 : 0);
-      if(structIndicators < 2) required = structIndicators;
+      int structIndicators = (Enable_IAE ? 1 : 0) + (Enable_FHMI ? 1 : 0) + (Enable_AKTE ? 1 : 0);
+      int required = (structIndicators >= 2) ? 2 : structIndicators;
 
       return (score >= required);
    }
    else {
       int score = 0;
-      if(Enable_Supertrend && S.st < 0) score++;
-      if(Enable_VWAP && S.vwap < 0) score++;
-      if(Enable_MACross && S.emaF < S.emaS) score++;
+      if(Enable_IAE && S.iae < 0) score++;
+      if(Enable_FHMI && S.fhmi < 0) score++;
+      if(Enable_AKTE && S.akte < 0) score++;
 
-      int required = 2;
-      int structIndicators = (Enable_Supertrend ? 1 : 0) + (Enable_VWAP ? 1 : 0) + (Enable_MACross ? 1 : 0);
-      if(structIndicators < 2) required = structIndicators;
+      int structIndicators = (Enable_IAE ? 1 : 0) + (Enable_FHMI ? 1 : 0) + (Enable_AKTE ? 1 : 0);
+      int required = (structIndicators >= 2) ? 2 : structIndicators;
 
       return (score >= required);
    }
