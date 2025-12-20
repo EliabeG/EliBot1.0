@@ -39,68 +39,68 @@ input bool     AllowShort             = true;
 //+------------------------------------------------------------------+
 input group "══════ 1. AKTE (Kalman Filter) ══════"
 input bool     Enable_AKTE            = true;
-input double   W_AKTE                 = 1.5;
-input double   AKTE_Q                 = 0.01;
-input int      AKTE_ATRPeriod         = 10;
-input int      AKTE_StdDevPeriod      = 20;
-input double   AKTE_InitialP          = 1.0;
+input double   W_AKTE                 = 6.75;
+input double   AKTE_Q                 = 0.042;
+input int      AKTE_ATRPeriod         = 20;
+input int      AKTE_StdDevPeriod      = 143;
+input double   AKTE_InitialP          = 2.2;
 
 input group "══════ 2. RSI ══════"
 input bool     Enable_RSI             = true;
-input double   W_RSI                  = 1.0;
-input int      RSI_Period             = 14;
-input int      RSI_Low                = 30;
-input int      RSI_High               = 70;
+input double   W_RSI                  = 7.1;
+input int      RSI_Period             = 27;
+input int      RSI_Low                = 64;
+input int      RSI_High               = 409;
 
 input group "══════ 3. PVP (Polynomial Velocity) ══════"
 input bool     Enable_PVP             = true;
-input double   W_PVP                  = 1.2;
-input int      PVP_LookbackPeriod     = 50;
-input double   PVP_Sensitivity        = 1.5;
-input double   PVP_ProbBuyThresh      = 0.65;
-input double   PVP_ProbSellThresh     = 0.35;
+input double   W_PVP                  = 10.08;
+input int      PVP_LookbackPeriod     = 332;
+input double   PVP_Sensitivity        = 14.55;
+input double   PVP_ProbBuyThresh      = 6.435;
+input double   PVP_ProbSellThresh     = 0.455;
 
 input group "══════ 4. IAE (Arc Efficiency) ══════"
 input bool     Enable_IAE             = true;
-input double   W_IAE                  = 1.3;
-input int      IAE_Period             = 20;
-input int      IAE_EMA_Period         = 9;
-input double   IAE_EffThreshold       = 0.6;
-input double   IAE_ScaleFactor        = 1.0;
+input double   W_IAE                  = 2.47;
+input int      IAE_Period             = 94;
+input int      IAE_EMA_Period         = 20;
+input double   IAE_EffThreshold       = 4.2;
+input double   IAE_ScaleFactor        = 7.5;
 
 input group "══════ 5. SCP (Spectral Cycle) ══════"
 input bool     Enable_SCP             = true;
-input double   W_SCP                  = 1.1;
-input int      SCP_WindowSize         = 64;
-input int      SCP_MinPeriod          = 10;
-input int      SCP_MaxPeriod          = 60;
-input double   SCP_SignalThreshold    = 0.8;
+input double   W_SCP                  = 10.67;
+input int      SCP_WindowSize         = 267;
+input int      SCP_MinPeriod          = 56;
+input int      SCP_MaxPeriod          = 264;
+input double   SCP_SignalThreshold    = 0.88;
 input int      SCP_PowerMAPeriod      = 10;
 
 input group "══════ 6. Heikin Ashi ══════"
 input bool     Enable_HeikinAshi      = true;
-input double   W_Heikin               = 1.0;
-input int      HA_Period              = 2;
+input double   W_Heikin               = 8.2;
+input int      HA_Period              = 14;
 
 input group "══════ 7. FHMI (Hurst Index) ══════"
 input bool     Enable_FHMI            = true;
-input double   W_FHMI                 = 1.2;
-input int      FHMI_Period            = 100;
-input int      FHMI_MomentumPeriod    = 14;
-input double   FHMI_TrendThreshold    = 0.6;
-input double   FHMI_ExtremeLow        = 0.2;
+input double   W_FHMI                 = 7.92;
+input int      FHMI_Period            = 559;
+input int      FHMI_MomentumPeriod    = 48;
+input double   FHMI_TrendThreshold    = 5.4;
+input double   FHMI_ExtremeLow        = 1.52;
 
 input group "══════ 8. Momentum (ROC) ══════"
 input bool     Enable_Momentum        = true;
-input double   W_Momentum             = 1.0;
-input int      ROC_Period             = 12;
-input double   ROC_Threshold          = 0.002;
+input double   W_Momentum             = 4.8;
+input int      ROC_Period             = 80;
+input double   ROC_Threshold          = 0.0182;
 
 input group "══════ 9. QQE ══════"
 input bool     Enable_QQE             = true;
-input double   W_QQE                  = 1.1;
-input int      QQE_RSI_Period         = 14;
-input int      QQE_SmoothingFactor    = 5;
+input double   W_QQE                  = 5.17;
+input int      QQE_RSI_Period         = 34;
+input int      QQE_SmoothingFactor    = 46;
 
 //+------------------------------------------------------------------+
 //|                    META DIARIA                                    |
