@@ -9,10 +9,7 @@
 #include "Inputs.mqh"
 #include "Globals.mqh"
 #include "Utils.mqh"
-
-// Forward declaration para evitar dependência circular
-double CalculateAggressiveLot(double baseLot);
-bool IsAggressiveModeActive();
+#include "DailyTargetManager.mqh"
 
 //-------------------------- HISTÓRICO / RISCO ------------------------------//
 double TodayPL() { 

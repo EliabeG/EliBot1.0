@@ -21,13 +21,13 @@
 //║                    SELEÇÃO DO INDICADOR                          ║
 //╚══════════════════════════════════════════════════════════════════╝
 enum IndicadorParaOtimizar {
-   OPT_MA_CROSS      = 0,  // 1. Cruzamento de Médias (MA Cross)
+   OPT_AKTE          = 0,  // 1. AKTE (Adaptive Kalman Trend Estimator)
    OPT_RSI           = 1,  // 2. RSI
    OPT_PVP           = 2,  // 3. PVP (Polynomial Velocity Predictor)
    OPT_IAE           = 3,  // 4. IAE (Integral Arc Efficiency)
-   OPT_AMA_KAMA      = 4,  // 5. AMA/KAMA
+   OPT_SCP           = 4,  // 5. SCP (Spectral Cycle Phaser)
    OPT_HEIKIN_ASHI   = 5,  // 6. Heikin Ashi
-   OPT_VWAP          = 6,  // 7. VWAP
+   OPT_FHMI          = 6,  // 7. FHMI (Fractal Hurst Memory Index)
    OPT_MOMENTUM      = 7,  // 8. Momentum (ROC)
    OPT_QQE           = 8   // 9. QQE
 };
@@ -36,7 +36,7 @@ enum IndicadorParaOtimizar {
 //║                    CONFIGURAÇÕES BÁSICAS                         ║
 //╚══════════════════════════════════════════════════════════════════╝
 input group "══════ CONFIGURAÇÃO DO TREINADOR ══════"
-input IndicadorParaOtimizar Indicador = OPT_MA_CROSS;  // ████ INDICADOR PARA OTIMIZAR ████
+input IndicadorParaOtimizar Indicador = OPT_AKTE;  // ████ INDICADOR PARA OTIMIZAR ████
 input string   InpSymbol              = "XAUUSD";      // Símbolo
 input ENUM_TIMEFRAMES InpTF           = PERIOD_M15;    // Tempo Gráfico
 
@@ -49,12 +49,14 @@ input double   LoteFixo               = 0.01;          // Lote Fixo
 input long     MagicNumber            = 99999;         // Número Mágico
 
 //╔══════════════════════════════════════════════════════════════════╗
-//║          PARÂMETROS DO INDICADOR 1: MA CROSS                     ║
+//║          PARÂMETROS DO INDICADOR 1: AKTE (Kalman Filter)         ║
 //╚══════════════════════════════════════════════════════════════════╝
-input group "══════ 1. MA CROSS - Cruzamento de Médias ══════"
-input int      MA_Fast_Period         = 20;            // EMA Rápida (período)
-input int      MA_Slow_Period         = 50;            // EMA Lenta (período)
-input ENUM_MA_METHOD MA_Method        = MODE_EMA;      // Método da Média
+input group "══════ 1. AKTE - Adaptive Kalman Trend Estimator ══════"
+input double   AKTE_Q                 = 0.01;          // Q - Ruído do Processo (0.001-0.1)
+input int      AKTE_ATRPeriod         = 10;            // Período do ATR para R adaptativo
+input double   AKTE_BandMultiplier    = 2.0;           // Multiplicador das Bandas de Erro
+input int      AKTE_StdDevPeriod      = 20;            // Período para StdDev dos Resíduos
+input double   AKTE_InitialP          = 1.0;           // P Inicial (Incerteza Inicial)
 
 //╔══════════════════════════════════════════════════════════════════╗
 //║          PARÂMETROS DO INDICADOR 2: RSI                          ║
@@ -85,12 +87,14 @@ input int      IAE_StdDevPeriod       = 20;            // Período para Desvio P
 input double   IAE_StdDevMult         = 2.0;           // Multiplicador do Desvio Padrão
 
 //╔══════════════════════════════════════════════════════════════════╗
-//║          PARÂMETROS DO INDICADOR 5: AMA/KAMA                     ║
+//║          PARÂMETROS DO INDICADOR 5: SCP (Spectral Cycle Phaser)  ║
 //╚══════════════════════════════════════════════════════════════════╝
-input group "══════ 5. AMA/KAMA - Média Adaptativa ══════"
-input int      AMA_ER_Period          = 10;            // Período ER
-input int      AMA_Fast               = 2;             // Constante Rápida
-input int      AMA_Slow               = 30;            // Constante Lenta
+input group "══════ 5. SCP - Spectral Cycle Phaser (Fourier) ══════"
+input int      SCP_WindowSize         = 64;            // Tamanho da Janela (N) para DFT
+input int      SCP_MinPeriod          = 10;            // Período Mínimo do Ciclo (T min)
+input int      SCP_MaxPeriod          = 60;            // Período Máximo do Ciclo (T max)
+input double   SCP_SignalThreshold    = 0.8;           // Limiar para Sinal (-0.8/+0.8)
+input int      SCP_PowerMAPeriod      = 10;            // Período da Média de Power
 
 //╔══════════════════════════════════════════════════════════════════╗
 //║          PARÂMETROS DO INDICADOR 6: HEIKIN ASHI                  ║
@@ -99,11 +103,15 @@ input group "══════ 6. HEIKIN ASHI ══════"
 input int      HA_Confirmacao         = 2;             // Candles de confirmação
 
 //╔══════════════════════════════════════════════════════════════════╗
-//║          PARÂMETROS DO INDICADOR 7: VWAP                         ║
+//║          PARÂMETROS DO INDICADOR 7: FHMI (Fractal Hurst Memory)  ║
 //╚══════════════════════════════════════════════════════════════════╝
-input group "══════ 7. VWAP ══════"
-input ENUM_TIMEFRAMES VWAP_TF         = PERIOD_M1;     // Tempo Gráfico VWAP
-input bool     VWAP_UseRealVolume     = false;         // Usar Volume Real
+input group "══════ 7. FHMI - Fractal Hurst Memory Index ══════"
+input int      FHMI_Period            = 100;           // Período para cálculo R/S
+input int      FHMI_MomentumPeriod    = 14;            // Período do Momentum para confirmação
+input double   FHMI_TrendThreshold    = 0.6;           // Limiar H para Tendência (> 0.6 = persistente)
+input double   FHMI_RevertThreshold   = 0.4;           // Limiar H para Reversão (< 0.4 = anti-persistente)
+input double   FHMI_ExtremeHigh       = 0.8;           // H extremo alto (forte tendência)
+input double   FHMI_ExtremeLow        = 0.2;           // H extremo baixo (forte reversão)
 
 //╔══════════════════════════════════════════════════════════════════╗
 //║          PARÂMETROS DO INDICADOR 8: MOMENTUM (ROC)               ║
@@ -125,15 +133,26 @@ input int      QQE_Smoothing          = 5;             // Suavização
 CTrade trade;
 
 // Handles dos indicadores
-int hEMAfast = INVALID_HANDLE;
-int hEMAslow = INVALID_HANDLE;
 int hRSI = INVALID_HANDLE;
 int hEMA_IAE = INVALID_HANDLE;   // EMA para IAE
+int hATR_AKTE = INVALID_HANDLE;  // ATR para AKTE
 
 // Variáveis de estado
 int g_sinalAtual = 0;       // +1 = COMPRA, -1 = VENDA, 0 = NEUTRO
 int g_sinalAnterior = 0;
 datetime g_lastBarTime = 0;
+
+// Variáveis AKTE (Adaptive Kalman Trend Estimator)
+double g_akte_x_atual;           // Estado estimado atual (linha Kalman)
+double g_akte_x_anterior;        // Estado anterior
+double g_akte_P_atual;           // Covariância atual
+double g_akte_K_atual;           // Ganho de Kalman atual
+double g_akte_K_anterior;        // Ganho anterior
+double g_akte_R_atual;           // Ruído de medição (adaptativo via ATR)
+double g_akte_error_atual;       // Erro estimado
+double g_akte_ATR_atual;         // ATR atual
+double g_akte_kalman_buffer[];   // Buffer do Kalman para cálculo de resíduos
+bool   g_akte_initialized;       // Flag de inicialização
 
 // Variáveis PVP (Polynomial Velocity Predictor)
 double g_pvp_coef_a, g_pvp_coef_b, g_pvp_coef_c, g_pvp_coef_d;  // Coeficientes polinômio
@@ -148,6 +167,32 @@ double g_iae_eficiencia;         // η - Coeficiente de Eficiência
 double g_iae_energia;            // Energia Integral
 double g_iae_eficiencia_ant;     // Eficiência anterior (para filtro)
 
+// Variáveis SCP (Spectral Cycle Phaser)
+int    g_scp_ciclo_dominante;    // Período do ciclo dominante (T)
+double g_scp_power_dominante;    // Power do ciclo dominante
+double g_scp_fase_atual;         // Fase projetada para barra atual (radianos)
+double g_scp_senoide_atual;      // Valor da senoide sin(φ_atual)
+double g_scp_senoide_anterior;   // Valor anterior da senoide
+double g_scp_senoide_anterior2;  // Valor 2 barras atrás
+double g_scp_power_medio;        // Média do power
+double g_scp_power_buffer[];     // Buffer para cálculo de média
+
+// Variáveis FHMI (Fractal Hurst Memory Index)
+double g_fhmi_hurst;             // Expoente de Hurst atual (H)
+double g_fhmi_hurst_anterior;    // Hurst anterior
+double g_fhmi_RS;                // Razão R/S atual
+double g_fhmi_R;                 // Range (R) - Amplitude acumulada
+double g_fhmi_S;                 // Desvio padrão (S)
+double g_fhmi_momentum;          // Momentum atual (ROC)
+double g_fhmi_momentum_anterior; // Momentum anterior
+double g_fhmi_retornos_buffer[]; // Buffer de retornos logarítmicos
+bool   g_fhmi_initialized;       // Flag de inicialização
+
+// Constantes matemáticas
+#ifndef M_PI
+   #define M_PI 3.14159265358979323846
+#endif
+
 //+------------------------------------------------------------------+
 //|                        OnInit                                     |
 //+------------------------------------------------------------------+
@@ -159,6 +204,19 @@ int OnInit() {
    g_sinalAtual = 0;
    g_sinalAnterior = 0;
    g_lastBarTime = 0;
+
+   // Reset AKTE
+   g_akte_x_atual = 0;
+   g_akte_x_anterior = 0;
+   g_akte_P_atual = AKTE_InitialP;
+   g_akte_K_atual = 0;
+   g_akte_K_anterior = 0;
+   g_akte_R_atual = 0;
+   g_akte_error_atual = 0;
+   g_akte_ATR_atual = 0;
+   g_akte_initialized = false;
+   ArrayResize(g_akte_kalman_buffer, AKTE_StdDevPeriod);
+   ArrayInitialize(g_akte_kalman_buffer, 0);
 
    // Reset PVP
    g_pvp_coef_a = 0;
@@ -176,6 +234,29 @@ int OnInit() {
    g_iae_eficiencia = 0;
    g_iae_energia = 0;
    g_iae_eficiencia_ant = 0;
+
+   // Reset SCP
+   g_scp_ciclo_dominante = SCP_MinPeriod;
+   g_scp_power_dominante = 0;
+   g_scp_fase_atual = 0;
+   g_scp_senoide_atual = 0;
+   g_scp_senoide_anterior = 0;
+   g_scp_senoide_anterior2 = 0;
+   g_scp_power_medio = 0;
+   ArrayResize(g_scp_power_buffer, SCP_PowerMAPeriod);
+   ArrayInitialize(g_scp_power_buffer, 0);
+
+   // Reset FHMI
+   g_fhmi_hurst = 0.5;
+   g_fhmi_hurst_anterior = 0.5;
+   g_fhmi_RS = 0;
+   g_fhmi_R = 0;
+   g_fhmi_S = 0;
+   g_fhmi_momentum = 0;
+   g_fhmi_momentum_anterior = 0;
+   g_fhmi_initialized = false;
+   ArrayResize(g_fhmi_retornos_buffer, FHMI_Period);
+   ArrayInitialize(g_fhmi_retornos_buffer, 0);
 
    Print("═══════════════════════════════════════════════════════════");
    Print("      MAAbot TREINADOR - Otimização de Indicadores");
@@ -199,10 +280,9 @@ int OnInit() {
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason) {
    // Libera handles
-   if(hEMAfast != INVALID_HANDLE) IndicatorRelease(hEMAfast);
-   if(hEMAslow != INVALID_HANDLE) IndicatorRelease(hEMAslow);
    if(hRSI != INVALID_HANDLE) IndicatorRelease(hRSI);
    if(hEMA_IAE != INVALID_HANDLE) IndicatorRelease(hEMA_IAE);
+   if(hATR_AKTE != INVALID_HANDLE) IndicatorRelease(hATR_AKTE);
 
    Print("═══════════════════════════════════════════════════════════");
    Print("      MAAbot TREINADOR - Finalizado");
@@ -253,10 +333,10 @@ void OnTick() {
 //+------------------------------------------------------------------+
 bool InicializarIndicadores() {
    switch(Indicador) {
-      case OPT_MA_CROSS:
-         hEMAfast = iMA(InpSymbol, InpTF, MA_Fast_Period, 0, MA_Method, PRICE_CLOSE);
-         hEMAslow = iMA(InpSymbol, InpTF, MA_Slow_Period, 0, MA_Method, PRICE_CLOSE);
-         return (hEMAfast != INVALID_HANDLE && hEMAslow != INVALID_HANDLE);
+      case OPT_AKTE:
+         // AKTE usa ATR para adaptação do ruído de medição
+         hATR_AKTE = iATR(InpSymbol, InpTF, AKTE_ATRPeriod);
+         return (hATR_AKTE != INVALID_HANDLE);
 
       case OPT_RSI:
          hRSI = iRSI(InpSymbol, InpTF, RSI_Period, PRICE_CLOSE);
@@ -270,16 +350,16 @@ bool InicializarIndicadores() {
          hEMA_IAE = iMA(InpSymbol, InpTF, IAE_EMA_Period, 0, MODE_EMA, PRICE_CLOSE);
          return (hEMA_IAE != INVALID_HANDLE);
 
-      case OPT_AMA_KAMA:
-         // KAMA é calculado manualmente
+      case OPT_SCP:
+         // SCP é calculado manualmente (DFT)
          return true;
 
       case OPT_HEIKIN_ASHI:
          // Heikin Ashi é calculado manualmente
          return true;
 
-      case OPT_VWAP:
-         // VWAP é calculado manualmente
+      case OPT_FHMI:
+         // FHMI é calculado manualmente (R/S Analysis)
          return true;
 
       case OPT_MOMENTUM:
@@ -298,13 +378,13 @@ bool InicializarIndicadores() {
 //+------------------------------------------------------------------+
 int ObterSinalIndicador() {
    switch(Indicador) {
-      case OPT_MA_CROSS:    return SinalMACross();
+      case OPT_AKTE:        return SinalAKTE();
       case OPT_RSI:         return SinalRSI();
       case OPT_PVP:         return SinalPVP();
       case OPT_IAE:         return SinalIAE();
-      case OPT_AMA_KAMA:    return SinalAMAKAMA();
+      case OPT_SCP:         return SinalSCP();
       case OPT_HEIKIN_ASHI: return SinalHeikinAshi();
-      case OPT_VWAP:        return SinalVWAP();
+      case OPT_FHMI:        return SinalFHMI();
       case OPT_MOMENTUM:    return SinalMomentum();
       case OPT_QQE:         return SinalQQE();
    }
@@ -312,24 +392,157 @@ int ObterSinalIndicador() {
 }
 
 //+------------------------------------------------------------------+
-//|              1. SINAL MA CROSS                                    |
+//|              1. SINAL AKTE (Adaptive Kalman Trend Estimator)      |
 //+------------------------------------------------------------------+
-int SinalMACross() {
-   double emaFast[], emaSlow[];
-   ArraySetAsSeries(emaFast, true);
-   ArraySetAsSeries(emaSlow, true);
+int SinalAKTE() {
+   int minBars = AKTE_ATRPeriod + AKTE_StdDevPeriod + 2;
+   if(Bars(InpSymbol, InpTF) < minBars) return 0;
 
-   if(CopyBuffer(hEMAfast, 0, 0, 3, emaFast) < 3) return 0;
-   if(CopyBuffer(hEMAslow, 0, 0, 3, emaSlow) < 3) return 0;
+   // Copiar dados de preço
+   double close[];
+   ArraySetAsSeries(close, true);
+   if(CopyClose(InpSymbol, InpTF, 0, minBars, close) < minBars) return 0;
 
-   double close = iClose(InpSymbol, InpTF, 1);
+   // Copiar ATR
+   double atr[];
+   ArraySetAsSeries(atr, true);
+   if(CopyBuffer(hATR_AKTE, 0, 0, 3, atr) < 3) return 0;
 
-   // EMA rápida acima da lenta e preço acima da lenta = COMPRA
-   if(emaFast[1] > emaSlow[1] && close > emaSlow[1]) return +1;
-   // EMA rápida abaixo da lenta e preço abaixo da lenta = VENDA
-   if(emaFast[1] < emaSlow[1] && close < emaSlow[1]) return -1;
+   // Obter preço atual (medição z)
+   double z = close[1];
+
+   // Obter ATR atual para adaptação de R
+   g_akte_ATR_atual = atr[1];
+   if(g_akte_ATR_atual < SymbolInfoDouble(InpSymbol, SYMBOL_POINT))
+      g_akte_ATR_atual = SymbolInfoDouble(InpSymbol, SYMBOL_POINT);
+
+   //=== ADAPTAÇÃO DINÂMICA DE R ===
+   // R = (ATR)² - Ruído de medição baseado na volatilidade
+   g_akte_R_atual = g_akte_ATR_atual * g_akte_ATR_atual;
+
+   //=== FILTRO DE KALMAN 1D ===
+   if(!g_akte_initialized) {
+      // Inicialização: x = preço atual
+      g_akte_x_atual = z;
+      g_akte_x_anterior = z;
+      g_akte_P_atual = AKTE_InitialP;
+      g_akte_K_atual = 0.5;
+      g_akte_K_anterior = 0.5;
+      g_akte_initialized = true;
+
+      // Atualizar buffer
+      AKTE_AtualizarBuffer(g_akte_x_atual);
+      return 0;
+   }
+
+   // Salvar valores anteriores
+   g_akte_x_anterior = g_akte_x_atual;
+   g_akte_K_anterior = g_akte_K_atual;
+
+   //=== 1. PREDIÇÃO (Time Update) ===
+   // x_pred = x_ant (Random Walk Model)
+   double x_pred = g_akte_x_anterior;
+
+   // P_pred = P_ant + Q
+   double P_pred = g_akte_P_atual + AKTE_Q;
+
+   //=== 2. CÁLCULO DO GANHO DE KALMAN ===
+   // K = P_pred / (P_pred + R)
+   double K = P_pred / (P_pred + g_akte_R_atual);
+
+   // Limitar K entre 0 e 1
+   if(K < 0.0) K = 0.0;
+   if(K > 1.0) K = 1.0;
+
+   //=== 3. CORREÇÃO (Measurement Update) ===
+   // x_atual = x_pred + K · (z - x_pred)
+   g_akte_x_atual = x_pred + K * (z - x_pred);
+
+   // P_atual = (1 - K) · P_pred
+   g_akte_P_atual = (1.0 - K) * P_pred;
+   g_akte_K_atual = K;
+
+   // Atualizar buffer para cálculo de resíduos
+   AKTE_AtualizarBuffer(g_akte_x_atual);
+
+   //=== CÁLCULO DO ERRO ESTIMADO ===
+   double residuo_stddev = AKTE_CalcularStdDevResiduos(close);
+   g_akte_error_atual = MathSqrt(g_akte_P_atual) + residuo_stddev;
+
+   // Calcular bandas
+   double bandaSuperior = g_akte_x_atual + AKTE_BandMultiplier * g_akte_error_atual;
+   double bandaInferior = g_akte_x_atual - AKTE_BandMultiplier * g_akte_error_atual;
+
+   //=== LÓGICA DE SINALIZAÇÃO ===
+   double close_atual = close[1];
+   double close_anterior = close[2];
+
+   // Verificar inclinação da linha Kalman
+   bool inclinacao_positiva = (g_akte_x_atual > g_akte_x_anterior);
+   bool inclinacao_negativa = (g_akte_x_atual < g_akte_x_anterior);
+
+   // Verificar se Ganho K está subindo (aumento de confiança)
+   bool K_subindo = (g_akte_K_atual > g_akte_K_anterior);
+
+   // Cruzamento do preço com a linha Kalman
+   bool cruza_para_cima = (close_anterior < g_akte_x_anterior && close_atual > g_akte_x_atual);
+   bool cruza_para_baixo = (close_anterior > g_akte_x_anterior && close_atual < g_akte_x_atual);
+
+   //=== SINAL DE COMPRA ===
+   // Preço cruza de baixo para cima a linha Kalman
+   // Inclinação positiva + Ganho K subindo
+   if(cruza_para_cima && inclinacao_positiva && K_subindo) {
+      return +1;
+   }
+
+   //=== SINAL DE VENDA ===
+   // Preço cruza de cima para baixo a linha Kalman
+   // Inclinação negativa + Ganho K subindo
+   if(cruza_para_baixo && inclinacao_negativa && K_subindo) {
+      return -1;
+   }
 
    return 0;
+}
+
+//+------------------------------------------------------------------+
+//| AKTE: Atualizar Buffer do Kalman (circular)                       |
+//+------------------------------------------------------------------+
+void AKTE_AtualizarBuffer(double valor) {
+   // Deslocar valores
+   for(int i = AKTE_StdDevPeriod - 1; i > 0; i--) {
+      g_akte_kalman_buffer[i] = g_akte_kalman_buffer[i - 1];
+   }
+   g_akte_kalman_buffer[0] = valor;
+}
+
+//+------------------------------------------------------------------+
+//| AKTE: Calcular Desvio Padrão dos Resíduos (Close - Kalman)        |
+//+------------------------------------------------------------------+
+double AKTE_CalcularStdDevResiduos(double &close[]) {
+   double soma = 0.0;
+   double soma_quad = 0.0;
+   int count = 0;
+
+   for(int j = 0; j < AKTE_StdDevPeriod; j++) {
+      if(g_akte_kalman_buffer[j] != 0.0) {
+         double residuo = close[j + 1] - g_akte_kalman_buffer[j];
+         soma += residuo;
+         soma_quad += residuo * residuo;
+         count++;
+      }
+   }
+
+   if(count < 2)
+      return 0.0;
+
+   double media = soma / count;
+   double variancia = (soma_quad / count) - (media * media);
+
+   if(variancia < 0.0)
+      variancia = 0.0;
+
+   return MathSqrt(variancia);
 }
 
 //+------------------------------------------------------------------+
@@ -700,50 +913,217 @@ double IAE_CalcularEnergiaIntegral(double &price[], double &ema_buf[], int idx, 
 }
 
 //+------------------------------------------------------------------+
-//|              5. SINAL AMA/KAMA                                    |
+//|              5. SINAL SCP (Spectral Cycle Phaser - Fourier DFT)   |
 //+------------------------------------------------------------------+
-int SinalAMAKAMA() {
+int SinalSCP() {
+   int minBars = SCP_WindowSize + SCP_MaxPeriod + 2;
+   if(Bars(InpSymbol, InpTF) < minBars) return 0;
+
+   // Copiar dados
    double close[];
    ArraySetAsSeries(close, true);
+   if(CopyClose(InpSymbol, InpTF, 0, minBars, close) < minBars) return 0;
 
-   if(CopyClose(InpSymbol, InpTF, 0, AMA_ER_Period + AMA_Slow + 5, close) < AMA_ER_Period + AMA_Slow + 5) return 0;
+   //=== 1. PRÉ-PROCESSAMENTO (LIMPEZA DE SINAL) ===
 
-   int n = ArraySize(close);
-   double kama = CalcularKAMA(close, n, AMA_ER_Period, AMA_Fast, AMA_Slow, 1);
-   double kama_prev = CalcularKAMA(close, n, AMA_ER_Period, AMA_Fast, AMA_Slow, 2);
+   // Extrair janela de preços
+   double precos_raw[];
+   ArrayResize(precos_raw, SCP_WindowSize);
 
-   double slope = kama - kama_prev;
+   for(int j = 0; j < SCP_WindowSize; j++) {
+      precos_raw[j] = close[SCP_WindowSize - j];  // Ordenar do mais antigo ao mais recente
+   }
 
-   // KAMA subindo e preço acima = COMPRA
-   if(slope > 0 && close[1] > kama) return +1;
-   // KAMA descendo e preço abaixo = VENDA
-   if(slope < 0 && close[1] < kama) return -1;
+   // A. Detrending (Remoção de Tendência Linear)
+   double precos_detrend[];
+   ArrayResize(precos_detrend, SCP_WindowSize);
+   SCP_RemoverTendenciaLinear(precos_raw, precos_detrend, SCP_WindowSize);
+
+   // B. Janelamento (Hanning Window)
+   double input_fourier[];
+   ArrayResize(input_fourier, SCP_WindowSize);
+   SCP_AplicarHanningWindow(precos_detrend, input_fourier, SCP_WindowSize);
+
+   //=== 2. MOTOR MATEMÁTICO (DFT OTIMIZADA) ===
+   // Buscar ciclos na faixa de interesse (MinPeriod a MaxPeriod barras)
+
+   double max_power = 0.0;
+   int periodo_dominante = SCP_MinPeriod;
+   double fase_dominante = 0.0;
+
+   // Loop pelos períodos T de interesse
+   for(int T = SCP_MinPeriod; T <= SCP_MaxPeriod; T++) {
+      // Frequência angular: ω = 2π/T
+      double omega = 2.0 * M_PI / (double)T;
+
+      // Calcular componentes Real e Imaginária
+      double real_sum = 0.0;
+      double imag_sum = 0.0;
+
+      for(int n = 0; n < SCP_WindowSize; n++) {
+         double angle = omega * n;
+         real_sum += input_fourier[n] * MathCos(angle);
+         imag_sum += input_fourier[n] * MathSin(angle);
+      }
+
+      // Potência (Amplitude do Ciclo): Power_T = √(Real² + Imag²)
+      double power_T = MathSqrt(real_sum * real_sum + imag_sum * imag_sum);
+
+      // Verificar se é o ciclo dominante (maior power)
+      if(power_T > max_power) {
+         max_power = power_T;
+         periodo_dominante = T;
+
+         // Fase (Posição no Ciclo): φ_T = arctan(-Imag/Real)
+         fase_dominante = MathArctan2(-imag_sum, real_sum);
+      }
+   }
+
+   // Salvar resultados do ciclo dominante
+   g_scp_ciclo_dominante = periodo_dominante;
+   g_scp_power_dominante = max_power;
+
+   //=== 3. PREVISÃO DE FASE ===
+   // A fase retornada refere-se ao início da janela
+   // Projetar para a barra atual
+
+   double omega_dominante = 2.0 * M_PI / (double)g_scp_ciclo_dominante;
+
+   // φ_atual = φ_dominante + ω_dominante · N
+   g_scp_fase_atual = fase_dominante + omega_dominante * SCP_WindowSize;
+
+   // Normalizar para ficar entre -π e +π
+   g_scp_fase_atual = SCP_NormalizarFase(g_scp_fase_atual);
+
+   //=== 4. OSCILADOR SENOIDAL ===
+   // Atualizar histórico
+   g_scp_senoide_anterior2 = g_scp_senoide_anterior;
+   g_scp_senoide_anterior = g_scp_senoide_atual;
+   g_scp_senoide_atual = MathSin(g_scp_fase_atual);
+
+   // Atualizar buffer de power para média móvel
+   SCP_AtualizarPowerBuffer(g_scp_power_dominante);
+   g_scp_power_medio = SCP_CalcularMediaPower();
+
+   //=== 5. LÓGICA DE SINALIZAÇÃO ===
+   bool power_alto = (g_scp_power_dominante > g_scp_power_medio);
+
+   // Verificar se há histórico suficiente
+   if(g_scp_senoide_anterior == 0 && g_scp_senoide_anterior2 == 0) return 0;
+
+   // SINAL DE COMPRA
+   // Senoide no fundo (< -threshold) e virando para cima
+   bool fundo_ciclo = (g_scp_senoide_anterior < -SCP_SignalThreshold);
+   bool virando_cima = (g_scp_senoide_atual > g_scp_senoide_anterior &&
+                        g_scp_senoide_anterior <= g_scp_senoide_anterior2);
+
+   if(fundo_ciclo && virando_cima && power_alto) {
+      return +1;
+   }
+
+   // SINAL DE VENDA
+   // Senoide no topo (> threshold) e virando para baixo
+   bool topo_ciclo = (g_scp_senoide_anterior > SCP_SignalThreshold);
+   bool virando_baixo = (g_scp_senoide_atual < g_scp_senoide_anterior &&
+                         g_scp_senoide_anterior >= g_scp_senoide_anterior2);
+
+   if(topo_ciclo && virando_baixo && power_alto) {
+      return -1;
+   }
 
    return 0;
 }
 
-double CalcularKAMA(double &close[], int n, int erPeriod, int fast, int slow, int shift) {
-   if(n < erPeriod + slow + shift) return close[shift];
+//+------------------------------------------------------------------+
+//| SCP: Remover Tendência Linear (Detrending)                        |
+//| x_i = Price_i - (m·i + c)                                         |
+//+------------------------------------------------------------------+
+void SCP_RemoverTendenciaLinear(double &source[], double &dest[], int size) {
+   // Calcular regressão linear y = mx + c
+   double sum_x = 0.0;
+   double sum_y = 0.0;
+   double sum_xy = 0.0;
+   double sum_x2 = 0.0;
 
-   // Efficiency Ratio
-   double change = MathAbs(close[shift] - close[shift + erPeriod]);
-   double volatility = 0;
-   for(int i = shift; i < shift + erPeriod; i++) {
-      volatility += MathAbs(close[i] - close[i + 1]);
+   for(int i = 0; i < size; i++) {
+      sum_x += i;
+      sum_y += source[i];
+      sum_xy += i * source[i];
+      sum_x2 += i * i;
    }
-   double er = (volatility > 0) ? change / volatility : 0;
 
-   // Smoothing Constant
-   double fastSC = 2.0 / (fast + 1);
-   double slowSC = 2.0 / (slow + 1);
-   double sc = MathPow(er * (fastSC - slowSC) + slowSC, 2);
+   double n = (double)size;
+   double denominador = (n * sum_x2 - sum_x * sum_x);
 
-   // KAMA
-   static double kama = 0;
-   if(kama == 0) kama = close[shift + erPeriod];
-   kama = kama + sc * (close[shift] - kama);
+   double m = 0.0;  // Inclinação
+   double c = 0.0;  // Intercepto
 
-   return kama;
+   if(MathAbs(denominador) > 1e-10) {
+      m = (n * sum_xy - sum_x * sum_y) / denominador;
+      c = (sum_y - m * sum_x) / n;
+   }
+
+   // Remover tendência: x_i = Price_i - (m·i + c)
+   for(int i = 0; i < size; i++) {
+      dest[i] = source[i] - (m * i + c);
+   }
+}
+
+//+------------------------------------------------------------------+
+//| SCP: Aplicar Janela de Hanning (Windowing)                        |
+//| w_i = 0.5 · (1 - cos(2πi/(N-1)))                                  |
+//+------------------------------------------------------------------+
+void SCP_AplicarHanningWindow(double &source[], double &dest[], int size) {
+   for(int i = 0; i < size; i++) {
+      // Calcular peso da janela Hanning
+      double w_i = 0.5 * (1.0 - MathCos(2.0 * M_PI * i / (size - 1)));
+
+      // Aplicar janela ao dado
+      dest[i] = source[i] * w_i;
+   }
+}
+
+//+------------------------------------------------------------------+
+//| SCP: Normalizar Fase para ficar entre -π e +π                     |
+//+------------------------------------------------------------------+
+double SCP_NormalizarFase(double fase) {
+   while(fase > M_PI)
+      fase -= 2.0 * M_PI;
+
+   while(fase < -M_PI)
+      fase += 2.0 * M_PI;
+
+   return fase;
+}
+
+//+------------------------------------------------------------------+
+//| SCP: Atualizar Buffer de Power (circular)                         |
+//+------------------------------------------------------------------+
+void SCP_AtualizarPowerBuffer(double power) {
+   // Deslocar valores
+   for(int i = SCP_PowerMAPeriod - 1; i > 0; i--) {
+      g_scp_power_buffer[i] = g_scp_power_buffer[i - 1];
+   }
+   g_scp_power_buffer[0] = power;
+}
+
+//+------------------------------------------------------------------+
+//| SCP: Calcular Média do Power                                      |
+//+------------------------------------------------------------------+
+double SCP_CalcularMediaPower() {
+   double soma = 0.0;
+   int count = 0;
+
+   for(int i = 0; i < SCP_PowerMAPeriod; i++) {
+      if(g_scp_power_buffer[i] > 0) {
+         soma += g_scp_power_buffer[i];
+         count++;
+      }
+   }
+
+   if(count > 0)
+      return soma / count;
+   return 0;
 }
 
 //+------------------------------------------------------------------+
@@ -785,42 +1165,147 @@ int SinalHeikinAshi() {
 }
 
 //+------------------------------------------------------------------+
-//|              7. SINAL VWAP                                        |
+//|              7. SINAL FHMI (Fractal Hurst Memory Index)           |
 //+------------------------------------------------------------------+
-int SinalVWAP() {
-   double vwap = CalcularVWAP();
-   if(vwap <= 0) return 0;
+int SinalFHMI() {
+   int minBars = FHMI_Period + FHMI_MomentumPeriod + 5;
+   if(Bars(InpSymbol, InpTF) < minBars) return 0;
 
-   double close = iClose(InpSymbol, InpTF, 1);
+   // Copiar dados de preço
+   double close[];
+   ArraySetAsSeries(close, true);
+   if(CopyClose(InpSymbol, InpTF, 0, minBars, close) < minBars) return 0;
 
-   // Preço acima do VWAP = COMPRA
-   if(close > vwap) return +1;
-   // Preço abaixo do VWAP = VENDA
-   if(close < vwap) return -1;
+   //=== 1. CALCULAR RETORNOS LOGARÍTMICOS ===
+   double retornos[];
+   ArrayResize(retornos, FHMI_Period);
+
+   for(int i = 0; i < FHMI_Period; i++) {
+      if(close[i + 2] > 0) {
+         retornos[i] = MathLog(close[i + 1] / close[i + 2]);
+      } else {
+         retornos[i] = 0;
+      }
+   }
+
+   //=== 2. CALCULAR EXPOENTE DE HURST VIA ANÁLISE R/S ===
+   g_fhmi_hurst_anterior = g_fhmi_hurst;
+   g_fhmi_hurst = FHMI_CalcularHurst(retornos, FHMI_Period);
+
+   //=== 3. CALCULAR MOMENTUM PARA CONFIRMAÇÃO ===
+   g_fhmi_momentum_anterior = g_fhmi_momentum;
+   if(close[1 + FHMI_MomentumPeriod] > 0) {
+      g_fhmi_momentum = (close[1] - close[1 + FHMI_MomentumPeriod]) / close[1 + FHMI_MomentumPeriod];
+   } else {
+      g_fhmi_momentum = 0;
+   }
+
+   //=== 4. LÓGICA DE SINALIZAÇÃO ===
+   // H > TrendThreshold: Mercado persistente (tendencial)
+   // H < RevertThreshold: Mercado anti-persistente (reversão à média)
+   // H ≈ 0.5: Random Walk (sem tendência clara)
+
+   bool mercado_tendencial = (g_fhmi_hurst > FHMI_TrendThreshold);
+   bool mercado_reversao = (g_fhmi_hurst < FHMI_RevertThreshold);
+   bool hurst_extremo_alto = (g_fhmi_hurst > FHMI_ExtremeHigh);
+   bool hurst_extremo_baixo = (g_fhmi_hurst < FHMI_ExtremeLow);
+
+   // Verificar mudança de regime (Hurst subindo ou descendo)
+   bool hurst_subindo = (g_fhmi_hurst > g_fhmi_hurst_anterior);
+   bool hurst_descendo = (g_fhmi_hurst < g_fhmi_hurst_anterior);
+
+   //=== SINAL DE COMPRA ===
+   // Opção 1: Mercado tendencial + Momentum positivo + Hurst subindo
+   if(mercado_tendencial && g_fhmi_momentum > 0 && hurst_subindo) {
+      return +1;
+   }
+
+   // Opção 2: Mercado em reversão extrema + Momentum virando positivo
+   if(hurst_extremo_baixo && g_fhmi_momentum > 0 && g_fhmi_momentum_anterior <= 0) {
+      return +1;
+   }
+
+   //=== SINAL DE VENDA ===
+   // Opção 1: Mercado tendencial + Momentum negativo + Hurst subindo
+   if(mercado_tendencial && g_fhmi_momentum < 0 && hurst_subindo) {
+      return -1;
+   }
+
+   // Opção 2: Mercado em reversão extrema + Momentum virando negativo
+   if(hurst_extremo_baixo && g_fhmi_momentum < 0 && g_fhmi_momentum_anterior >= 0) {
+      return -1;
+   }
 
    return 0;
 }
 
-double CalcularVWAP() {
-   datetime dayStart = StringToTime(TimeToString(TimeCurrent(), TIME_DATE));
-   int bars = Bars(InpSymbol, VWAP_TF, dayStart, TimeCurrent());
-   if(bars <= 0) return 0;
+//+------------------------------------------------------------------+
+//| FHMI: Calcular Expoente de Hurst via Análise R/S (Rescaled Range)|
+//| H = log(R/S) / log(N/2)                                           |
+//+------------------------------------------------------------------+
+double FHMI_CalcularHurst(double &retornos[], int n) {
+   if(n < 10) return 0.5;  // Retornar random walk se dados insuficientes
 
-   double sumPV = 0, sumV = 0;
+   //=== A. CALCULAR MÉDIA DOS RETORNOS ===
+   double soma = 0.0;
+   for(int i = 0; i < n; i++) {
+      soma += retornos[i];
+   }
+   double media = soma / n;
 
-   for(int i = 0; i < bars; i++) {
-      double h = iHigh(InpSymbol, VWAP_TF, i);
-      double l = iLow(InpSymbol, VWAP_TF, i);
-      double c = iClose(InpSymbol, VWAP_TF, i);
-      double typical = (h + l + c) / 3.0;
+   //=== B. CALCULAR DESVIO PADRÃO (S) ===
+   double soma_quad = 0.0;
+   for(int i = 0; i < n; i++) {
+      double diff = retornos[i] - media;
+      soma_quad += diff * diff;
+   }
+   double variancia = soma_quad / n;
+   g_fhmi_S = MathSqrt(variancia);
 
-      double vol = (double)(VWAP_UseRealVolume ? iVolume(InpSymbol, VWAP_TF, i) : iTickVolume(InpSymbol, VWAP_TF, i));
-
-      sumPV += typical * vol;
-      sumV += vol;
+   // Evitar divisão por zero
+   if(g_fhmi_S < 1e-10) {
+      g_fhmi_S = 1e-10;
+      return 0.5;
    }
 
-   return (sumV > 0) ? sumPV / sumV : 0;
+   //=== C. CALCULAR DESVIOS CUMULATIVOS ===
+   double desvios_cumulativos[];
+   ArrayResize(desvios_cumulativos, n);
+
+   double soma_cumulativa = 0.0;
+   for(int i = 0; i < n; i++) {
+      soma_cumulativa += (retornos[i] - media);
+      desvios_cumulativos[i] = soma_cumulativa;
+   }
+
+   //=== D. CALCULAR RANGE (R) ===
+   double max_cumul = desvios_cumulativos[0];
+   double min_cumul = desvios_cumulativos[0];
+
+   for(int i = 1; i < n; i++) {
+      if(desvios_cumulativos[i] > max_cumul) max_cumul = desvios_cumulativos[i];
+      if(desvios_cumulativos[i] < min_cumul) min_cumul = desvios_cumulativos[i];
+   }
+
+   g_fhmi_R = max_cumul - min_cumul;
+
+   //=== E. CALCULAR R/S ===
+   g_fhmi_RS = g_fhmi_R / g_fhmi_S;
+
+   //=== F. CALCULAR EXPOENTE DE HURST ===
+   // H = log(R/S) / log(N/2)
+   // Para evitar log de zero ou valores negativos
+   if(g_fhmi_RS <= 0 || n <= 2) {
+      return 0.5;
+   }
+
+   double H = MathLog(g_fhmi_RS) / MathLog((double)n / 2.0);
+
+   // Limitar H entre 0 e 1
+   if(H < 0.0) H = 0.0;
+   if(H > 1.0) H = 1.0;
+
+   return H;
 }
 
 //+------------------------------------------------------------------+
@@ -945,13 +1430,13 @@ void AbrirVenda() {
 
 string GetIndicadorNome() {
    switch(Indicador) {
-      case OPT_MA_CROSS:    return "MA Cross";
+      case OPT_AKTE:        return "AKTE";
       case OPT_RSI:         return "RSI";
       case OPT_PVP:         return "PVP";
       case OPT_IAE:         return "IAE";
-      case OPT_AMA_KAMA:    return "AMA/KAMA";
+      case OPT_SCP:         return "SCP";
       case OPT_HEIKIN_ASHI: return "Heikin Ashi";
-      case OPT_VWAP:        return "VWAP";
+      case OPT_FHMI:        return "FHMI";
       case OPT_MOMENTUM:    return "Momentum";
       case OPT_QQE:         return "QQE";
    }
