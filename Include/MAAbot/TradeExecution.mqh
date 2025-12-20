@@ -21,7 +21,15 @@
 //-------------------------- TRY OPEN ----------------------------------------//
 bool TryOpen(int dir, const Signals &S, double pDir, double thr, datetime now, CTrade &trade) {
    if(dir > 0) g_blockReasonBuy = ""; else g_blockReasonSell = "";
-   
+
+   // ======== VERIFICAÇÃO DE COOLDOWN POR MARGEM ========
+   // Evita loop infinito quando não há margem suficiente
+   if(g_lastMarginFailTime > 0 && (now - g_lastMarginFailTime) < g_marginCooldownSeconds) {
+      string reason = StringFormat("Margin cooldown (%ds)", g_marginCooldownSeconds - (int)(now - g_lastMarginFailTime));
+      if(dir > 0) g_blockReasonBuy = reason; else g_blockReasonSell = reason;
+      return false;
+   }
+
    if(UseFailedEntryFilter) {
       if(dir > 0 && now < g_buyPenaltyUntil) { g_blockReasonBuy = "Penalty cooldown"; return false; }
       if(dir < 0 && now < g_sellPenaltyUntil) { g_blockReasonSell = "Penalty cooldown"; return false; }
@@ -66,7 +74,7 @@ bool TryOpen(int dir, const Signals &S, double pDir, double thr, datetime now, C
    }
    
    bool ok = false;
-   
+
    if(MG_Mode == MG_GRID) {
       if(dir > 0) ok = trade.Buy(vol, InpSymbol, Ask(), 0.0, 0.0, "BUY-INIT");
       else ok = trade.Sell(vol, InpSymbol, Bid(), 0.0, 0.0, "SELL-INIT");
@@ -77,9 +85,13 @@ bool TryOpen(int dir, const Signals &S, double pDir, double thr, datetime now, C
          g_lastActionTime = now;
          // CORREÇÃO: Notifica sistema de meta diária sobre novo trade
          OnDailyTargetTradeOpened();
+         // Reseta contadores de falha de margem
+         g_marginFailCount = 0;
+         g_lastMarginFailTime = 0;
       }
       else {
-         if(dir > 0) g_blockReasonBuy = "Trade failed"; else g_blockReasonSell = "Trade failed";
+         // Verifica se foi falha por margem
+         HandleTradeFailure(dir, trade, now);
       }
    }
    else {
@@ -93,8 +105,11 @@ bool TryOpen(int dir, const Signals &S, double pDir, double thr, datetime now, C
             g_lastActionTime = now;
             // CORREÇÃO: Notifica sistema de meta diária sobre novo trade
             OnDailyTargetTradeOpened();
+            // Reseta contadores de falha de margem
+            g_marginFailCount = 0;
+            g_lastMarginFailTime = 0;
          }
-         else g_blockReasonBuy = "Trade failed";
+         else HandleTradeFailure(dir, trade, now);
       }
       else {
          double sl = Ask() + sl_pts * pt, tp = Ask() - tp_pts * pt;
@@ -105,11 +120,40 @@ bool TryOpen(int dir, const Signals &S, double pDir, double thr, datetime now, C
             g_lastActionTime = now;
             // CORREÇÃO: Notifica sistema de meta diária sobre novo trade
             OnDailyTargetTradeOpened();
+            // Reseta contadores de falha de margem
+            g_marginFailCount = 0;
+            g_lastMarginFailTime = 0;
          }
-         else g_blockReasonSell = "Trade failed";
+         else HandleTradeFailure(dir, trade, now);
       }
    }
    return ok;
+}
+
+// Trata falha de trade e detecta se foi por margem insuficiente
+void HandleTradeFailure(int dir, CTrade &trade, datetime now) {
+   uint retcode = trade.ResultRetcode();
+   string reason = "Trade failed";
+
+   // Verifica códigos de erro relacionados a margem
+   if(retcode == TRADE_RETCODE_NO_MONEY || retcode == 10019) {
+      reason = "No money/margin";
+      g_marginFailCount++;
+      g_lastMarginFailTime = now;
+
+      // Aumenta cooldown progressivamente com falhas consecutivas
+      g_marginCooldownSeconds = MathMin(300, 60 * g_marginFailCount); // Máx 5 min
+
+      Print("[MARGIN FAIL] Falha #", g_marginFailCount,
+            " | Cooldown: ", g_marginCooldownSeconds, "s",
+            " | Próxima tentativa após: ", TimeToString(now + g_marginCooldownSeconds));
+   }
+   else {
+      reason = StringFormat("Error %d: %s", retcode, trade.ResultRetcodeDescription());
+   }
+
+   if(dir > 0) g_blockReasonBuy = reason;
+   else g_blockReasonSell = reason;
 }
 
 #endif // __MAABOT_TRADEEXECUTION_MQH__

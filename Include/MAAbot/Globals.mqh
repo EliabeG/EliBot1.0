@@ -107,5 +107,10 @@ static double    g_adxValue = 0.0;
 //-------------------------- PREFIXO DO PAINEL -----------------------------//
 #define PANEL_PREFIX "MAABot_Panel_"
 
+//-------------------------- CONTROLE DE MARGEM (EVITA LOOP INFINITO) --------//
+datetime g_lastMarginFailTime = 0;        // Última falha por margem
+int      g_marginFailCount = 0;           // Contador de falhas consecutivas
+int      g_marginCooldownSeconds = 60;    // Cooldown entre tentativas após falha
+
 #endif // __MAABOT_GLOBALS_MQH__
 //+------------------------------------------------------------------+

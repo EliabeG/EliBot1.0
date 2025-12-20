@@ -91,7 +91,44 @@ double LotsForRiskPercent(double percent, int sl_points) {
       baseLot = CalculateAggressiveLot(baseLot);
    }
 
+   // ======== VERIFICAÇÃO DE MARGEM ========
+   // Garante que o lote não exceda a margem disponível
+   baseLot = AdjustLotForMargin(baseLot, minlot, step);
+
    return baseLot;
+}
+
+// Ajusta o lote para caber na margem disponível
+double AdjustLotForMargin(double lot, double minlot, double step) {
+   double freeMargin = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
+   if(freeMargin <= 0) return minlot;
+
+   // Calcula margem necessária para 1 lote
+   double marginRequired = 0.0;
+   if(!OrderCalcMargin(ORDER_TYPE_BUY, InpSymbol, 1.0, SymbolInfoDouble(InpSymbol, SYMBOL_ASK), marginRequired)) {
+      return lot; // Se não conseguir calcular, mantém o lote original
+   }
+
+   if(marginRequired <= 0) return lot;
+
+   // Calcula o lote máximo que cabe na margem livre (com 10% de segurança)
+   double maxLotByMargin = (freeMargin * 0.9) / marginRequired;
+
+   // Se o lote calculado é maior que o permitido pela margem, ajusta
+   if(lot > maxLotByMargin) {
+      int k = (int)MathFloor(maxLotByMargin / step);
+      lot = k * step;
+      lot = MathMax(minlot, lot);
+
+      // Se ainda assim não couber, retorna 0 para bloquear a entrada
+      if(lot * marginRequired > freeMargin * 0.95) {
+         Print("[MARGIN] Margem insuficiente! Lote reduzido de ", lot, " para ", minlot,
+               " | FreeMargin=", freeMargin, " | MarginReq/lot=", marginRequired);
+         return minlot;
+      }
+   }
+
+   return lot;
 }
 
 //-------------------------- DD GUARD / THROTTLE ----------------------------//
