@@ -215,6 +215,8 @@ input int      TP_Donchian_Lookback  = 20;                     // TP Donchian Lo
 input int      TP_Donchian_BufferPts = 20;                     // TP Donchian Buffer
 
 input bool     ExitOnVWAPCross       = true;                   // Sair no cruzamento VWAP
+input ENUM_TIMEFRAMES VWAP_TF        = PERIOD_M15;             // TF para cálculo VWAP
+input bool     VWAP_UseRealVolume    = true;                   // Usar volume real (não tick)
 input int      MaxBarsInTrade        = 96;                     // Máximo barras na operação
 input int      ATR_Period            = 14;                     // Período do ATR
 
