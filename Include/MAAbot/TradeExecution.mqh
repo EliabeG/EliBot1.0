@@ -16,6 +16,7 @@
 #include "TradeManagement.mqh"
 #include "Grid.mqh"
 #include "Basket.mqh"
+#include "DailyTargetManager.mqh"
 
 //-------------------------- TRY OPEN ----------------------------------------//
 bool TryOpen(int dir, const Signals &S, double pDir, double thr, datetime now, CTrade &trade) {
@@ -69,11 +70,13 @@ bool TryOpen(int dir, const Signals &S, double pDir, double thr, datetime now, C
    if(MG_Mode == MG_GRID) {
       if(dir > 0) ok = trade.Buy(vol, InpSymbol, Ask(), 0.0, 0.0, "BUY-INIT");
       else ok = trade.Sell(vol, InpSymbol, Bid(), 0.0, 0.0, "SELL-INIT");
-      
-      if(ok) { 
-         if(dir > 0) { lastBuyTime = now; GridInitIfNeed(+1); g_lastAction = "ABRIU BUY"; } 
+
+      if(ok) {
+         if(dir > 0) { lastBuyTime = now; GridInitIfNeed(+1); g_lastAction = "ABRIU BUY"; }
          else { lastSellTime = now; GridInitIfNeed(-1); g_lastAction = "ABRIU SELL"; }
          g_lastActionTime = now;
+         // CORREÇÃO: Notifica sistema de meta diária sobre novo trade
+         OnDailyTargetTradeOpened();
       }
       else {
          if(dir > 0) g_blockReasonBuy = "Trade failed"; else g_blockReasonSell = "Trade failed";
@@ -81,16 +84,28 @@ bool TryOpen(int dir, const Signals &S, double pDir, double thr, datetime now, C
    }
    else {
       double pt = Pt();
-      if(dir > 0) { 
-         double sl = Bid() - sl_pts * pt, tp = Bid() + tp_pts * pt; 
-         ok = trade.Buy(vol, InpSymbol, Ask(), sl, tp, "BUY"); 
-         if(ok) { lastBuyTime = now; g_lastAction = "ABRIU BUY"; g_lastActionTime = now; }
+      if(dir > 0) {
+         double sl = Bid() - sl_pts * pt, tp = Bid() + tp_pts * pt;
+         ok = trade.Buy(vol, InpSymbol, Ask(), sl, tp, "BUY");
+         if(ok) {
+            lastBuyTime = now;
+            g_lastAction = "ABRIU BUY";
+            g_lastActionTime = now;
+            // CORREÇÃO: Notifica sistema de meta diária sobre novo trade
+            OnDailyTargetTradeOpened();
+         }
          else g_blockReasonBuy = "Trade failed";
       }
-      else { 
-         double sl = Ask() + sl_pts * pt, tp = Ask() - tp_pts * pt; 
-         ok = trade.Sell(vol, InpSymbol, Bid(), sl, tp, "SELL"); 
-         if(ok) { lastSellTime = now; g_lastAction = "ABRIU SELL"; g_lastActionTime = now; }
+      else {
+         double sl = Ask() + sl_pts * pt, tp = Ask() - tp_pts * pt;
+         ok = trade.Sell(vol, InpSymbol, Bid(), sl, tp, "SELL");
+         if(ok) {
+            lastSellTime = now;
+            g_lastAction = "ABRIU SELL";
+            g_lastActionTime = now;
+            // CORREÇÃO: Notifica sistema de meta diária sobre novo trade
+            OnDailyTargetTradeOpened();
+         }
          else g_blockReasonSell = "Trade failed";
       }
    }

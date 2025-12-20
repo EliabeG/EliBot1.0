@@ -242,27 +242,29 @@ void UpdatePanel(const Signals &S) {
    CreatePanelLabel("ThrSLbl", col4, y + lineH * row, "Thr:" + DoubleToString(g_thrS * 100, 0) + "%", C'150,150,150');
    row++;
    
-   // Sinais LONG
+   // Sinais LONG (usando número dinâmico de indicadores ativos)
+   int activeIndicators = CountActiveIndicators();
+   int effMinSignals = GetEffectiveMinSignals();
    CreatePanelLabel("AgreeLLbl", col1, y + lineH * row, "Sinais LONG:", PanelTextColor);
-   color agreeLClr = (g_signalsAgreeL >= MinAgreeSignals) ? PanelBuyColor : PanelNeutralColor;
-   CreatePanelLabel("AgreeLVal", col2, y + lineH * row, IntegerToString(g_signalsAgreeL) + "/9", agreeLClr);
-   string barL = ""; for(int i = 0; i < 9; i++) barL += (i < g_signalsAgreeL) ? "|" : ".";
+   color agreeLClr = (g_signalsAgreeL >= effMinSignals) ? PanelBuyColor : PanelNeutralColor;
+   CreatePanelLabel("AgreeLVal", col2, y + lineH * row, IntegerToString(g_signalsAgreeL) + "/" + IntegerToString(activeIndicators), agreeLClr);
+   string barL = ""; for(int i = 0; i < activeIndicators; i++) barL += (i < g_signalsAgreeL) ? "|" : ".";
    CreatePanelLabel("AgreeLBar", col2 + 50, y + lineH * row, "[" + barL + "]", agreeLClr);
-   CreatePanelLabel("MinLLbl", col4, y + lineH * row, "Min:" + IntegerToString(MinAgreeSignals), C'150,150,150');
+   CreatePanelLabel("MinLLbl", col4, y + lineH * row, "Min:" + IntegerToString(effMinSignals), C'150,150,150');
    row++;
-   
-   // Sinais SHORT
+
+   // Sinais SHORT (usando número dinâmico de indicadores ativos)
    CreatePanelLabel("AgreeSLbl", col1, y + lineH * row, "Sinais SHORT:", PanelTextColor);
-   color agreeSClr = (g_signalsAgreeS >= MinAgreeSignals) ? PanelSellColor : PanelNeutralColor;
-   CreatePanelLabel("AgreeSVal", col2, y + lineH * row, IntegerToString(g_signalsAgreeS) + "/9", agreeSClr);
-   string barS = ""; for(int i = 0; i < 9; i++) barS += (i < g_signalsAgreeS) ? "|" : ".";
+   color agreeSClr = (g_signalsAgreeS >= effMinSignals) ? PanelSellColor : PanelNeutralColor;
+   CreatePanelLabel("AgreeSVal", col2, y + lineH * row, IntegerToString(g_signalsAgreeS) + "/" + IntegerToString(activeIndicators), agreeSClr);
+   string barS = ""; for(int i = 0; i < activeIndicators; i++) barS += (i < g_signalsAgreeS) ? "|" : ".";
    CreatePanelLabel("AgreeSBar", col2 + 50, y + lineH * row, "[" + barS + "]", agreeSClr);
-   CreatePanelLabel("MinSLbl", col4, y + lineH * row, "Min:" + IntegerToString(MinAgreeSignals), C'150,150,150');
+   CreatePanelLabel("MinSLbl", col4, y + lineH * row, "Min:" + IntegerToString(effMinSignals), C'150,150,150');
    row++;
    
-   // Decisão
-   bool canBuy = (g_signalsAgreeL >= MinAgreeSignals) && (g_probLong >= g_thrL) && AllowLong;
-   bool canSell = (g_signalsAgreeS >= MinAgreeSignals) && (g_probShort >= g_thrS) && AllowShort;
+   // Decisão (usa mínimo efetivo de sinais)
+   bool canBuy = (g_signalsAgreeL >= effMinSignals) && (g_probLong >= g_thrL) && AllowLong;
+   bool canSell = (g_signalsAgreeS >= effMinSignals) && (g_probShort >= g_thrS) && AllowShort;
    string decisionStr = ""; color decisionClr = PanelNeutralColor;
    if(canBuy && canSell) { decisionStr = "AMBOS OK"; decisionClr = clrYellow; }
    else if(canBuy) { decisionStr = "PODE COMPRAR"; decisionClr = PanelBuyColor; }

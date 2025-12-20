@@ -13,6 +13,7 @@
 #include "Basket.mqh"
 #include "Signals.mqh"
 #include "RiskManagement.mqh"
+#include "DailyTargetManager.mqh"
 
 //-------------------------- GRID HELPERS (Trend-Aware) ----------------------//
 void GridReset(int dir) { 
@@ -161,9 +162,11 @@ void GridTryAdd(const Signals &S, int dir, CTrade &trade) {
       addLot = k * stepVol; 
       if(addLot < stepVol) return;
       
-      if(trade.Buy(addLot, InpSymbol, Ask(), 0.0, 0.0, "MG-ADD-BUY")) { 
+      if(trade.Buy(addLot, InpSymbol, Ask(), 0.0, 0.0, "MG-ADD-BUY")) {
          gridBuy.adds++; gridBuy.lastAddPrice = price;
          g_lastAction = "Grid ADD Buy"; g_lastActionTime = TimeCurrent();
+         // CORREÇÃO: Notifica sistema de meta diária sobre novo trade
+         OnDailyTargetTradeOpened();
       }
    }
    else {
@@ -188,9 +191,11 @@ void GridTryAdd(const Signals &S, int dir, CTrade &trade) {
       addLot = k * stepVol; 
       if(addLot < stepVol) return;
       
-      if(trade.Sell(addLot, InpSymbol, Bid(), 0.0, 0.0, "MG-ADD-SELL")) { 
+      if(trade.Sell(addLot, InpSymbol, Bid(), 0.0, 0.0, "MG-ADD-SELL")) {
          gridSell.adds++; gridSell.lastAddPrice = price;
          g_lastAction = "Grid ADD Sell"; g_lastActionTime = TimeCurrent();
+         // CORREÇÃO: Notifica sistema de meta diária sobre novo trade
+         OnDailyTargetTradeOpened();
       }
    }
 }
