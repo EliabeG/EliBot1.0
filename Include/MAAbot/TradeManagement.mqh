@@ -90,21 +90,23 @@ void CalcStopsTP_Regime(int dir, bool trending, int &sl_pts_out, int &tp_pts_out
 
 //-------------------------- GESTÃO PER-TRADE --------------------------------//
 void ManagePerTrade(CTrade &trade) {
-   if(MG_Mode == MG_GRID) return;
-
    // ======== META DIÁRIA (PORCENTAGEM AO DIA) ========
-   // Gerencia o sistema de meta diária com juros compostos
+   // IMPORTANTE: Deve ser executado ANTES do return do modo Grid
+   // para garantir que a operação forçada funcione em todos os modos
    ManageDailyTarget();
+
+   // ======== VERIFICAÇÃO DE FIM DO DIA ========
+   // Executa ação configurada ao fim do horário
+   ExecuteEndOfDayAction(trade);
+
+   // No modo Grid, não aplica trailing individual (Grid tem sua própria gestão)
+   if(MG_Mode == MG_GRID) return;
 
    // ======== TRAILING STOP AVANÇADO ========
    // Se o modo avançado estiver ativo, usa o novo sistema
    if(AdvTrail_Mode != TRAIL_OFF) {
       ManageAdvancedTrailingStop(trade);
    }
-
-   // ======== VERIFICAÇÃO DE FIM DO DIA ========
-   // Executa ação configurada ao fim do horário
-   ExecuteEndOfDayAction(trade);
 
    int total = PositionsTotal();
    for(int i = 0; i < total; i++) {
