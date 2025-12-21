@@ -2,3 +2,7 @@
 # Nuvemshop import scripts (contain API credentials)
 nuvemshop_products.py
 nuvemshop_products_v2.py
+retry_failed.py
+upload_images.py
+fotos_produtos.zip
+fotos_produtos/
