@@ -9,3 +9,4 @@ fotos_produtos/
 nuvemshop_session.py
 import_elpescador.py
 backup_elpescador_*.json
+ubuntu_key.pem
