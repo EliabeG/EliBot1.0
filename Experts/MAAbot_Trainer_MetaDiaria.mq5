@@ -352,6 +352,16 @@ void OnDeinit(const int reason) {
 //+------------------------------------------------------------------+
 void OnTick() {
    datetime now = TimeCurrent();
+   static bool firstTick = true;
+
+   if(firstTick) {
+      Print("=== PRIMEIRO TICK ===");
+      Print("DT_Enable: ", DT_Enable);
+      Print("StartBalance: ", g_dtState.startBalance);
+      Print("Balance: ", AccountInfoDouble(ACCOUNT_BALANCE));
+      Print("Equity: ", AccountInfoDouble(ACCOUNT_EQUITY));
+      firstTick = false;
+   }
 
    // Verificar meta diaria
    if(DT_Enable) {
@@ -360,15 +370,37 @@ void OnTick() {
          g_dtState.startBalance = CalculateBaseBalance();
          g_dtState.targetAmount = g_dtState.startBalance * (DT_TargetPercent / 100.0);
          g_dtState.targetBalance = g_dtState.startBalance + g_dtState.targetAmount;
+         Print("StartBalance recalculado: ", g_dtState.startBalance);
       }
 
       CheckDailyReset();
-      if(MonitorDailyTarget()) return;
-      if(g_dtState.blocked) return;
+      if(MonitorDailyTarget()) {
+         static datetime lastBlockMsg = 0;
+         if(TimeCurrent() - lastBlockMsg > 3600) {
+            Print("BLOQUEADO por MonitorDailyTarget. blocked=", g_dtState.blocked, " targetHit=", g_dtState.targetHit);
+            lastBlockMsg = TimeCurrent();
+         }
+         return;
+      }
+      if(g_dtState.blocked) {
+         static datetime lastBlockMsg2 = 0;
+         if(TimeCurrent() - lastBlockMsg2 > 3600) {
+            Print("BLOQUEADO por g_dtState.blocked");
+            lastBlockMsg2 = TimeCurrent();
+         }
+         return;
+      }
    }
 
    // Verificar limites
-   if(CheckLimits()) return;
+   if(CheckLimits()) {
+      static datetime lastLimitMsg = 0;
+      if(TimeCurrent() - lastLimitMsg > 3600) {
+         Print("BLOQUEADO por CheckLimits");
+         lastLimitMsg = TimeCurrent();
+      }
+      return;
+   }
 
    // Verificar horario
    MqlDateTime dt; TimeToStruct(now, dt);
@@ -412,6 +444,16 @@ void OnTick() {
    // Contar sinais concordantes
    int agreeL = CountAgree(S, +1);
    int agreeS = CountAgree(S, -1);
+
+   // Debug a cada nova barra
+   static int barCount = 0;
+   barCount++;
+   if(barCount <= 10 || barCount % 100 == 0) {
+      Print("Barra ", barCount, ": agreeL=", agreeL, " agreeS=", agreeS,
+            " minSig=", minSignals, " pL=", DoubleToString(pL,2),
+            " pS=", DoubleToString(pS,2), " minProb=", DoubleToString(minProb,2),
+            " aggMode=", g_dtState.aggressiveMode, " forceMode=", g_dtState.forceMode);
+   }
 
    // Verificar condicoes de entrada
    bool wantBuy = AllowLong && (agreeL >= minSignals) && (pL >= minProb);
