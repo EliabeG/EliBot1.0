@@ -355,6 +355,13 @@ void OnTick() {
 
    // Verificar meta diaria
    if(DT_Enable) {
+      // Garantir que startBalance foi inicializado corretamente
+      if(g_dtState.startBalance <= 0) {
+         g_dtState.startBalance = CalculateBaseBalance();
+         g_dtState.targetAmount = g_dtState.startBalance * (DT_TargetPercent / 100.0);
+         g_dtState.targetBalance = g_dtState.startBalance + g_dtState.targetAmount;
+      }
+
       CheckDailyReset();
       if(MonitorDailyTarget()) return;
       if(g_dtState.blocked) return;
@@ -1077,12 +1084,16 @@ double CalculateBaseBalance() {
    double balance = AccountInfoDouble(ACCOUNT_BALANCE);
    double equity = AccountInfoDouble(ACCOUNT_EQUITY);
 
+   // Garantir que temos um saldo válido
+   if(balance <= 0) balance = equity;
+   if(balance <= 0) balance = DT_FixedBalance;
+
    switch(DT_BalanceBase) {
       case BALANCE_START_DAY:
          if(g_dtState.startBalance > 0) return g_dtState.startBalance;
          return balance;
       case BALANCE_CURRENT:
-         return equity;
+         return (equity > 0) ? equity : balance;
       case BALANCE_FIXED:
          return DT_FixedBalance;
       default:
@@ -1348,31 +1359,39 @@ double GetAdjustedMinProbability() {
 //|              LIMITES E PROTECAO                                   |
 //+------------------------------------------------------------------+
 bool CheckLimits() {
+   // Se meta diária não está ativa, não verificar limites baseados nela
+   if(!DT_Enable) return false;
+
+   // Verificar se startBalance é válido
+   if(g_dtState.startBalance <= 0) return false;
+
    // Verificar máximo de trades por dia
    if(g_dtState.tradesOpened >= LP_MaxTradesPerDay) {
       return true;
    }
 
-   // Verificar drawdown máximo
-   double equity = AccountInfoDouble(ACCOUNT_EQUITY);
-   double drawdown = (g_dtState.highestPL - g_dtState.currentPL) / g_dtState.startBalance * 100;
-
-   if(drawdown >= LP_MaxDrawdownPercent) {
-      if(LP_CloseOnDrawdown) {
-         Print("DRAWDOWN MAXIMO ATINGIDO: ", DoubleToString(drawdown, 2), "%");
-         CloseAllPositions();
-         g_dtState.blocked = true;
+   // Verificar drawdown máximo (só se highestPL > 0)
+   if(g_dtState.highestPL > 0) {
+      double drawdown = (g_dtState.highestPL - g_dtState.currentPL) / g_dtState.startBalance * 100;
+      if(drawdown >= LP_MaxDrawdownPercent && LP_MaxDrawdownPercent < 100) {
+         if(LP_CloseOnDrawdown) {
+            Print("DRAWDOWN MAXIMO ATINGIDO: ", DoubleToString(drawdown, 2), "%");
+            CloseAllPositions();
+            g_dtState.blocked = true;
+         }
+         return true;
       }
-      return true;
    }
 
-   // Verificar perda diária máxima
-   double lossPercent = MathAbs(g_dtState.lowestPL) / g_dtState.startBalance * 100;
-   if(lossPercent >= LP_MaxDailyLossPercent) {
-      Print("PERDA DIARIA MAXIMA: ", DoubleToString(lossPercent, 2), "%");
-      CloseAllPositions();
-      g_dtState.blocked = true;
-      return true;
+   // Verificar perda diária máxima (só se lowestPL < 0)
+   if(g_dtState.lowestPL < 0) {
+      double lossPercent = MathAbs(g_dtState.lowestPL) / g_dtState.startBalance * 100;
+      if(lossPercent >= LP_MaxDailyLossPercent && LP_MaxDailyLossPercent < 100) {
+         Print("PERDA DIARIA MAXIMA: ", DoubleToString(lossPercent, 2), "%");
+         CloseAllPositions();
+         g_dtState.blocked = true;
+         return true;
+      }
    }
 
    return false;
