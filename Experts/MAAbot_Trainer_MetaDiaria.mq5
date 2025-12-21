@@ -1185,9 +1185,13 @@ bool MonitorDailyTarget() {
       if(dt.hour < DT_StartHour || dt.hour >= DT_EndHour) return false;
    }
 
-   // Meta atingida?
-   double targetWithTolerance = g_dtState.targetBalance * (1.0 - DT_TargetTolerance);
-   if(!g_dtState.targetHit && equity >= targetWithTolerance) {
+   // Meta atingida? (deve ter lucro positivo E atingir a meta com tolerância)
+   // Tolerância: permite considerar meta atingida se chegou a X% da meta
+   // Ex: meta=10, tolerância=0.05 -> considera atingida se lucro >= 9.5 (95% da meta)
+   double targetAmountWithTolerance = g_dtState.targetAmount * (1.0 - DT_TargetTolerance);
+   bool metaAtingida = (g_dtState.currentPL > 0) && (g_dtState.currentPL >= targetAmountWithTolerance);
+
+   if(!g_dtState.targetHit && metaAtingida) {
       g_dtState.targetHit = true;
       g_dtState.targetHitTime = TimeCurrent();
 
