@@ -103,8 +103,8 @@ void ManagePerTrade(CTrade &trade) {
    if(MG_Mode == MG_GRID) return;
 
    // ======== TRAILING STOP AVANÇADO ========
-   // Se o modo avançado estiver ativo, usa o novo sistema
-   if(AdvTrail_Mode != TRAIL_OFF) {
+   // Se o trailing stop estiver ativado globalmente E o modo avançado configurado
+   if(IsTrailingStopEnabled() && GetEffectiveTrailingMode() != TRAIL_OFF) {
       ManageAdvancedTrailingStop(trade);
    }
 
@@ -155,8 +155,12 @@ void ManagePerTrade(CTrade &trade) {
       double rPts = (sl > 0.0) ? MathAbs(price - sl) / pt : StopLossPoints;
 
       // ======== TRAILING SIMPLES (legado) ========
-      // Só usa se o trailing avançado estiver desligado mas o global ativado
-      if(IsTrailingStopEnabled() && GetEffectiveTrailingMode() == TRAIL_OFF && UseATRTrailing) {
+      // Só usa trailing ATR simples se:
+      // 1. O trailing global está ATIVO (Enable_TrailingStop = true)
+      // 2. O modo avançado está OFF (AdvTrail_Mode = TRAIL_OFF)
+      // 3. O UseATRTrailing está ativo
+      // Isso permite usar apenas o trailing ATR simples sem o sistema avançado
+      if(IsTrailingStopEnabled() && AdvTrail_Mode == TRAIL_OFF && UseATRTrailing) {
          double atr = 0.0; GetBuf(hATR, 0, atr, 0);
          if(atr > 0.0) {
             if(type == POSITION_TYPE_BUY) {
@@ -171,8 +175,8 @@ void ManagePerTrade(CTrade &trade) {
       }
 
       // ======== BREAK-EVEN (legado) ========
-      // Só usa se o profit lock avançado estiver desligado mas o global ativado
-      if(IsTrailingStopEnabled() && GetEffectiveTrailingMode() == TRAIL_OFF && UseBreakEven && rPts > 0.0) {
+      // Só usa break-even simples se trailing avançado OFF mas global ativo
+      if(IsTrailingStopEnabled() && AdvTrail_Mode == TRAIL_OFF && UseBreakEven && rPts > 0.0) {
          if(type == POSITION_TYPE_BUY) {
             double gain = (bid - price) / pt;
             if(gain >= rPts) {

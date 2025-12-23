@@ -45,13 +45,16 @@ input int      MinAgreeSignals       = 3;                      // Mínimo de sin
 input PrecMode PrecisionMode         = MODE_BALANCED;          // Modo de precisão
 
 //╔══════════════════════════════════════════════════════════════════╗
-//║          INDICADOR 1: CRUZAMENTO DE MÉDIAS (MA Cross)            ║
+//║          INDICADOR 1: AKTE (Adaptive Kalman Trend Estimator)     ║
 //╚══════════════════════════════════════════════════════════════════╝
-input group "══════ 1. CRUZAMENTO DE MÉDIAS (MA Cross) ══════"
-input bool     Enable_MACross        = true;                   // [ATIVAR] Cruzamento de Médias
-input double   W_MAcross             = 1.0;                    // Peso do sinal
-input int      EMA_Fast              = 20;                     // EMA Rápida (período)
-input int      EMA_Slow              = 50;                     // EMA Lenta (período)
+input group "══════ 1. AKTE (Adaptive Kalman Trend Estimator) ══════"
+input bool     Enable_AKTE           = true;                   // [ATIVAR] AKTE
+input double   W_AKTE                = 1.0;                    // Peso do sinal
+input double   AKTE_Q                = 0.011;                  // Q - Ruído do Processo (0.001-0.1)
+input int      AKTE_ATRPeriod        = 64;                     // Período do ATR para R adaptativo
+input double   AKTE_BandMultiplier   = 10.4;                   // Multiplicador das Bandas de Erro
+input int      AKTE_StdDevPeriod     = 69;                     // Período para StdDev dos Resíduos
+input double   AKTE_InitialP         = 8.5;                    // P Inicial (Incerteza Inicial)
 
 //╔══════════════════════════════════════════════════════════════════╗
 //║                    INDICADOR 2: RSI                              ║
@@ -59,38 +62,45 @@ input int      EMA_Slow              = 50;                     // EMA Lenta (per
 input group "══════ 2. RSI (Índice de Força Relativa) ══════"
 input bool     Enable_RSI            = true;                   // [ATIVAR] RSI
 input double   W_RSI                 = 1.0;                    // Peso do sinal
-input int      RSI_Period            = 14;                     // RSI (período)
-input int      RSI_Low               = 30;                     // RSI Sobrevendido
+input int      RSI_Period            = 44;                     // RSI (período)
+input int      RSI_Low               = 32;                     // RSI Sobrevendido
 input int      RSI_High              = 70;                     // RSI Sobrecomprado
 
 //╔══════════════════════════════════════════════════════════════════╗
-//║              INDICADOR 3: BANDAS DE BOLLINGER                    ║
+//║          INDICADOR 3: PVP (Polynomial Velocity Predictor)        ║
 //╚══════════════════════════════════════════════════════════════════╝
-input group "══════ 3. BANDAS DE BOLLINGER ══════"
-input bool     Enable_BBands         = true;                   // [ATIVAR] Bandas de Bollinger
-input double   W_BBands              = 1.0;                    // Peso do sinal
-input int      BB_Period             = 20;                     // Período
-input double   BB_Dev                = 2.0;                    // Desvio padrão
+input group "══════ 3. PVP (Polynomial Velocity Predictor) ══════"
+input bool     Enable_PVP            = true;                   // [ATIVAR] PVP
+input double   W_PVP                 = 1.0;                    // Peso do sinal
+input int      PVP_LookbackPeriod    = 308;                    // Período de Lookback (n velas)
+input double   PVP_Sensitivity       = 4.5;                    // Constante de Sensibilidade (k)
+input double   PVP_ProbBuyThresh     = 4.875;                  // Limiar Prob. Compra
+input double   PVP_ProbSellThresh    = 0.3;                    // Limiar Prob. Venda
 
 //╔══════════════════════════════════════════════════════════════════╗
-//║                  INDICADOR 4: SUPERTREND                         ║
+//║          INDICADOR 4: IAE (Integral Arc Efficiency)              ║
 //╚══════════════════════════════════════════════════════════════════╝
-input group "══════ 4. SUPERTREND ══════"
-input bool     Enable_Supertrend     = true;                   // [ATIVAR] SuperTrend
-input double   W_Supertrend          = 1.3;                    // Peso do sinal
-input int      ST_ATR_Period         = 10;                     // ATR (período)
-input double   ST_Mult               = 3.0;                    // Multiplicador
+input group "══════ 4. IAE (Integral Arc Efficiency) ══════"
+input bool     Enable_IAE            = true;                   // [ATIVAR] IAE
+input double   W_IAE                 = 1.3;                    // Peso do sinal
+input int      IAE_Period            = 35;                     // Período da Janela Móvel (n)
+input int      IAE_EMA_Period        = 86;                     // Período da EMA base
+input double   IAE_EffThreshold      = 0.5;                    // Limiar de Eficiência (η)
+input double   IAE_ScaleFactor       = 2.9;                    // Fator de Escala (λ)
+input int      IAE_StdDevPeriod      = 130;                    // Período para Desvio Padrão
+input double   IAE_StdDevMult        = 15.4;                   // Multiplicador do Desvio Padrão
 
 //╔══════════════════════════════════════════════════════════════════╗
-//║                 INDICADOR 5: AMA/KAMA                            ║
+//║          INDICADOR 5: SCP (Spectral Cycle Phaser - Fourier)      ║
 //╚══════════════════════════════════════════════════════════════════╝
-input group "══════ 5. AMA/KAMA (Média Adaptativa) ══════"
-input bool     Enable_AMA            = true;                   // [ATIVAR] AMA/KAMA
-input double   W_AMA                 = 1.2;                    // Peso do sinal
-input int      AMA_ER_Period         = 10;                     // ER (período)
-input int      AMA_Fast              = 2;                      // Constante Rápida
-input int      AMA_Slow              = 30;                     // Constante Lenta
-input double   AMA_ATR_FilterMult    = 3.0;                    // Filtro ATR (mult.)
+input group "══════ 5. SCP (Spectral Cycle Phaser) ══════"
+input bool     Enable_SCP            = true;                   // [ATIVAR] SCP
+input double   W_SCP                 = 1.2;                    // Peso do sinal
+input int      SCP_WindowSize        = 100;                    // Tamanho da Janela (N) para DFT
+input int      SCP_MinPeriod         = 30;                     // Período Mínimo do Ciclo (T min)
+input int      SCP_MaxPeriod         = 100;                    // Período Máximo do Ciclo (T max)
+input double   SCP_SignalThreshold   = 0.8;                    // Limiar para Sinal (-0.8/+0.8)
+input int      SCP_PowerMAPeriod     = 10;                     // Período da Média de Power
 
 //╔══════════════════════════════════════════════════════════════════╗
 //║                 INDICADOR 6: HEIKIN ASHI                         ║
@@ -98,15 +108,20 @@ input double   AMA_ATR_FilterMult    = 3.0;                    // Filtro ATR (mu
 input group "══════ 6. HEIKIN ASHI ══════"
 input bool     Enable_HeikinAshi     = true;                   // [ATIVAR] Heikin Ashi
 input double   W_Heikin              = 1.0;                    // Peso do sinal
+input int      HA_Period             = 10;                     // Período de lookback
 
 //╔══════════════════════════════════════════════════════════════════╗
-//║                    INDICADOR 7: VWAP                             ║
+//║          INDICADOR 7: FHMI (Fractal Hurst Memory Index)          ║
 //╚══════════════════════════════════════════════════════════════════╝
-input group "══════ 7. VWAP (Preço Médio Ponderado por Volume) ══════"
-input bool     Enable_VWAP           = true;                   // [ATIVAR] VWAP
-input double   W_VWAP                = 1.1;                    // Peso do sinal
-input ENUM_TIMEFRAMES VWAP_TF        = PERIOD_M1;              // Tempo gráfico
-input bool     VWAP_UseRealVolume    = false;                  // Usar volume real
+input group "══════ 7. FHMI (Fractal Hurst Memory Index) ══════"
+input bool     Enable_FHMI           = true;                   // [ATIVAR] FHMI
+input double   W_FHMI                = 1.1;                    // Peso do sinal
+input int      FHMI_Period           = 121;                    // Período para cálculo R/S
+input int      FHMI_MomentumPeriod   = 66;                     // Período do Momentum
+input double   FHMI_TrendThreshold   = 4.5;                    // Limiar H para Tendência
+input double   FHMI_RevertThreshold  = 1.0;                    // Limiar H para Reversão
+input double   FHMI_ExtremeHigh      = 1.12;                   // H extremo alto
+input double   FHMI_ExtremeLow       = 0.54;                   // H extremo baixo
 
 //╔══════════════════════════════════════════════════════════════════╗
 //║                  INDICADOR 8: MOMENTUM (ROC)                     ║
@@ -114,8 +129,8 @@ input bool     VWAP_UseRealVolume    = false;                  // Usar volume re
 input group "══════ 8. MOMENTUM (Rate of Change) ══════"
 input bool     Enable_Momentum       = true;                   // [ATIVAR] Momentum
 input double   W_Momentum            = 1.0;                    // Peso do sinal
-input int      ROC_Period            = 12;                     // Período
-input double   ROC_Threshold         = 0.002;                  // Limiar
+input int      ROC_Period            = 77;                     // Período
+input double   ROC_Threshold         = 0.019;                  // Limiar
 
 //╔══════════════════════════════════════════════════════════════════╗
 //║                     INDICADOR 9: QQE                             ║
@@ -124,8 +139,8 @@ input group "══════ 9. QQE (Qualitative Quantitative Estimation) ═
 input bool     Enable_QQE            = true;                   // [ATIVAR] QQE
 input bool     UseQQEFilter          = true;                   // Usar como filtro adicional
 input double   W_QQE                 = 1.5;                    // Peso do sinal
-input int      QQE_RSI_Period        = 14;                     // RSI (período)
-input int      QQE_SmoothingFactor   = 5;                      // Suavização
+input int      QQE_RSI_Period        = 15;                     // RSI (período)
+input int      QQE_SmoothingFactor   = 39;                     // Suavização
 
 //╔══════════════════════════════════════════════════════════════════╗
 //║              FILTROS ADICIONAIS DE ENTRADA                       ║
@@ -201,6 +216,8 @@ input int      TP_Donchian_Lookback  = 20;                     // TP Donchian Lo
 input int      TP_Donchian_BufferPts = 20;                     // TP Donchian Buffer
 
 input bool     ExitOnVWAPCross       = true;                   // Sair no cruzamento VWAP
+input ENUM_TIMEFRAMES VWAP_TF        = PERIOD_M15;             // TF para cálculo VWAP
+input bool     VWAP_UseRealVolume    = true;                   // Usar volume real (não tick)
 input int      MaxBarsInTrade        = 96;                     // Máximo barras na operação
 input int      ATR_Period            = 14;                     // Período do ATR
 
@@ -440,26 +457,26 @@ input string   PanelFontName         = "Consolas";             // Nome fonte
 //╚══════════════════════════════════════════════════════════════════╝
 
 // Retorna o peso efetivo do indicador (0 se desativado)
-double GetWeight_MACross()    { return Enable_MACross ? W_MAcross : 0.0; }
+double GetWeight_AKTE()       { return Enable_AKTE ? W_AKTE : 0.0; }
 double GetWeight_RSI()        { return Enable_RSI ? W_RSI : 0.0; }
-double GetWeight_BBands()     { return Enable_BBands ? W_BBands : 0.0; }
-double GetWeight_Supertrend() { return Enable_Supertrend ? W_Supertrend : 0.0; }
-double GetWeight_AMA()        { return Enable_AMA ? W_AMA : 0.0; }
+double GetWeight_PVP()        { return Enable_PVP ? W_PVP : 0.0; }
+double GetWeight_IAE()        { return Enable_IAE ? W_IAE : 0.0; }
+double GetWeight_SCP()        { return Enable_SCP ? W_SCP : 0.0; }
 double GetWeight_Heikin()     { return Enable_HeikinAshi ? W_Heikin : 0.0; }
-double GetWeight_VWAP()       { return Enable_VWAP ? W_VWAP : 0.0; }
+double GetWeight_FHMI()       { return Enable_FHMI ? W_FHMI : 0.0; }
 double GetWeight_Momentum()   { return Enable_Momentum ? W_Momentum : 0.0; }
 double GetWeight_QQE()        { return Enable_QQE ? W_QQE : 0.0; }
 
 // Conta quantos indicadores estão ativos
 int CountActiveIndicators() {
    int count = 0;
-   if(Enable_MACross) count++;
+   if(Enable_AKTE) count++;
    if(Enable_RSI) count++;
-   if(Enable_BBands) count++;
-   if(Enable_Supertrend) count++;
-   if(Enable_AMA) count++;
+   if(Enable_PVP) count++;
+   if(Enable_IAE) count++;
+   if(Enable_SCP) count++;
    if(Enable_HeikinAshi) count++;
-   if(Enable_VWAP) count++;
+   if(Enable_FHMI) count++;
    if(Enable_Momentum) count++;
    if(Enable_QQE) count++;
    return count;
